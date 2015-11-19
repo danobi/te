@@ -1,6 +1,3 @@
-# te
-te - minimalist text editor
-
 Requirements
 ============
 In order to build `te` you need the ncurses header files.
