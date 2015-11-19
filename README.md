@@ -1,3 +1,8 @@
+Background
+============
+`te` is a fork of `sandy` made at suckless.
+`te` is primarily a hacking project.
+
 Requirements
 ============
 In order to build `te` you need the ncurses header files.
