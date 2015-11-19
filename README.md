@@ -13,20 +13,24 @@ further configure the editor at compile time. An examples file is provided as
 Afterwards enter the following command to build and install `te` (use root if
 needed):
 
-    `make clean install`
+    make clean install
 
 
 Running `te`
 ============
 Use the following syntax:
 
-	`sandy [-r] [-S | -s SYNTAX] [-t TABSTOP] [File]`
+	te [-r] [-S | -s SYNTAX] [-t TABSTOP] [File]
 
 Where:
 -a starts with autoindent
+
 -r opens the file read-only
+
 -S use no syntax colors at all.
+
 -s SYNTAX  lets you specify the syntax colors for this file
+
 -t TABSTOP sets the tabstop for this instance of sandy
 
 
@@ -37,4 +41,4 @@ Name
 
 Known issues
 ============
-Mouse scroll down works if ncurses is compiled with --enable-ext-mouse.
+Mouse scroll down works if ncurses is compiled with `--enable-ext-mouse`.
