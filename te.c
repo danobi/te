@@ -180,13 +180,10 @@ static void f_adjective(const Arg *);
 static void f_center(const Arg *);
 static void f_delete(const Arg *);
 static void f_extsel(const Arg *);
-static void f_findbw(const Arg *);
-static void f_findfw(const Arg *);
 static void f_insert(const Arg *);
 static void f_line(const Arg *);
 static void f_mark(const Arg *);
 static void f_move(const Arg *);
-static void f_offset(const Arg *);
 static void f_pipe(const Arg *);
 static void f_pipero(const Arg *);
 static void f_repeat(const Arg *);
@@ -201,7 +198,6 @@ static void f_undo(const Arg *);
 static Filepos       i_addtext(char *, Filepos);
 static void          i_addtoundo(Filepos, const char *);
 static void          i_addundo(bool, Filepos, Filepos, char *);
-static void          i_advpos(Filepos * pos, int o);
 static void          i_calcvlen(Line * l);
 static void          i_cleanup(int);
 static bool          i_deltext(Filepos, Filepos);
@@ -210,7 +206,6 @@ static void          i_dirtyrange(Line *, Line *);
 static bool          i_dotests(bool(*const a[])(void));
 static void          i_dokeys(const Key[], unsigned int);
 static void          i_edit(void);
-static void          i_find(bool);
 static char         *i_gettext(Filepos, Filepos);
 static void          i_killundos(Undo **);
 static Line         *i_lineat(unsigned long);
@@ -436,15 +431,6 @@ f_move(const Arg * arg) {
 	fcur = arg->m(fcur);
 	if(!t_vis())
 		fsel = fcur;
-}
-
-/* Got to atoi(arg->v) position in the current line */
-void
-f_offset(const Arg * arg) {
-	fcur.o = atoi(arg->v);
-	if(fcur.o > fcur.l->len)
-		fcur.o = fcur.l->len;
-	FIXNEXT(fcur);
 }
 
 /* Pipe selection through arg->v external command. Your responsibility:
@@ -722,24 +708,6 @@ i_addtext(char *buf, Filepos pos) {
 	return f;
 }
 
-/* Take a file position and advance it o bytes */
-void
-i_advpos(Filepos * pos, int o) {
-	int toeol;
-
-	toeol = pos->l->len - pos->o;
-	if(o <= toeol)
-		o += pos->o;
-	else
-		while(o > toeol && pos->l->next) {
-			pos->l = pos->l->next;
-			o -= (1 + toeol);
-			toeol = pos->l->len;
-		}
-	pos->o = o;
-	FIXNEXT((*pos)); /* TODO: this should not be needed here */
-}
-
 /* Update the vlen value of a Line */
 void
 i_calcvlen(Line * l) {
@@ -942,8 +910,17 @@ i_edit(void) {
 		if(fsel.l != fcur.l || fsel.o != fcur.o)
 			HOOK_SELECT_ALL;
 #endif
+		FD_ZERO(&fds);
+		FD_SET(0, &fds);
 		signal(SIGWINCH, i_sigwinch);
+		if(select(FD_SETSIZE, &fds, NULL, NULL, NULL) == -1 &&
+		   errno == EINTR) {
+			signal(SIGWINCH, SIG_IGN);
+			continue;
+		}
 		signal(SIGWINCH, SIG_IGN);
+		if(!FD_ISSET(0, &fds))
+			continue;
 		if((ch = wgetch(textwin)) == ERR) {
 			tmptitle = "ERR";
 			continue;
@@ -983,6 +960,7 @@ i_edit(void) {
 			i_dokeys(stdkeys, LEN(stdkeys));
 			continue;
 		}
+
 		statusflags &= ~(S_InsEsc);
 
 		if(t_rw() && t_ins()) {
