@@ -37,3 +37,6 @@ te
 
 # Header files
 config.h
+
+# Vagrant stuff
+.vagrant/
