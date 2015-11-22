@@ -34,3 +34,6 @@ te
 
 # Vim files
 *.swp
+
+# Header files
+config.h
