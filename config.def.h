@@ -9,7 +9,6 @@
 
 /* Things unlikely to be changed, yet still in the config.h file */
 static const bool   isutf8     = TRUE;
-static const char   fifobase[] = "/tmp/tefifo.";
 static       int    tabstop    = 8; /* Not const, as it may be changed via param */
 /* static const char   systempath[]  = "/etc/te"; */
 /* static const char   userpath[]    = ".te"; */ /* Relative to $HOME */
@@ -275,111 +274,6 @@ static const Click clks[] = {
 {BUTTON1_TRIPLE_CLICKED, { TRUE , TRUE  }, { 0,     0,     0 }, f_extsel,   { .i = ExtLines }  },
 };
 #endif /* HANDLE_MOUSE */
-
-/* Commands read at the fifo */
-static const Command cmds[] = { /* REMEMBER: if(arg == 0) arg.v=regex_match */
-/* regex,           tests,              func      arg */
-{"^([0-9]+)$",      { 0,     0,    0 }, f_line ,  { 0 } },
-{"^/(.*)$",         { 0,     0,    0 }, f_findfw, { 0 } },
-{"^\\?(.*)$",       { 0,     0,    0 }, f_findbw, { 0 } },
-{"^![ \t]*(.*)$",   { t_rw,  0,    0 }, f_pipe,   { 0 } },
-{"^![ /t]*(.*)$",   { 0,     0,    0 }, f_pipero, { 0 } },
-{"^w[ \t]*(.*)$",   { t_mod, t_rw, 0 }, f_save,   { 0 } },
-{"^syntax (.*)$",   { 0,     0,    0 }, f_syntax, { 0 } },
-{"^offset (.*)$",   { 0,     0,    0 }, f_offset, { 0 } },
-{"^icase$",         { 0,     0,    0 }, f_toggle, { .i = S_CaseIns } },
-{"^ro$",            { 0,     0,    0 }, f_toggle, { .i = S_Readonly } },
-{"^ai$",            { 0,     0,    0 }, f_toggle, { .i = S_AutoIndent } },
-{"^dump$",          { 0,     0,    0 }, f_toggle, { .i = S_DumpStdout } },
-{"^q$",             { t_mod, 0,    0 }, f_toggle, { .i = S_Warned } },
-{"^q$",             { 0,     0,    0 }, f_toggle, { .i = S_Running } },
-{"^q!$",            { 0,     0,    0 }, f_toggle, { .i = S_Running } },
-};
-
-/* Syntax color definition */
-#define B "\\b"
-/* #define B "^| |\t|\\(|\\)|\\[|\\]|\\{|\\}|\\||$"  -- Use this if \b is not in your libc's regex implementation */
-
-static const Syntax syntaxes[] = {
-#if HILIGHT_SYNTAX
-{"c", "\\.([ch](pp|xx)?|cc)$", {
-	/* HiRed   */  "$^",
-	/* HiGreen */  B"(for|if|while|do|else|case|default|switch|try|throw|catch|operator|new|delete)"B,
-	/* LoGreen */  B"(float|double|bool|char|int|short|long|sizeof|enum|void|static|const|struct|union|typedef|extern|(un)?signed|inline|((s?size)|((u_?)?int(8|16|32|64|ptr)))_t|class|namespace|template|public|protected|private|typename|this|friend|virtual|using|mutable|volatile|register|explicit)"B,
-	/* HiMag   */  B"(goto|continue|break|return)"B,
-	/* LoMag   */  "(^#(define|include(_next)?|(un|ifn?)def|endif|el(if|se)|if|warning|error|pragma))|"B"[A-Z_][0-9A-Z_]+"B"",
-	/* HiBlue  */  "(\\(|\\)|\\{|\\}|\\[|\\])",
-	/* LoRed   */  "(\"(\\\\.|[^\"])*\")",
-	/* LoBlue  */  "(//.*|/\\*([^*]|\\*[^/])*\\*/|/\\*([^*]|\\*[^/])*$|^([^/]|/[^*])*\\*/)",
-	} },
-
-{"sh", "\\.sh$", {
-	/* HiRed   */  "$^",
-	/* HiGreen */  "^[0-9A-Z_]+\\(\\)",
-	/* LoGreen */  B"(case|do|done|elif|else|esac|exit|fi|for|function|if|in|local|read|return|select|shift|then|time|until|while)"B,
-	/* HiMag   */  "$^",
-	/* LoMag   */  "\"(\\\\.|[^\"])*\"",
-	/* HiBlue  */  "(\\{|\\}|\\(|\\)|\\;|\\]|\\[|`|\\\\|\\$|<|>|!|=|&|\\|)",
-	/* LoRed   */  "\\$\\{?[0-9A-Z_!@#$*?-]+\\}?",
-	/* LoBlue  */  "#.*$",
-	} },
-
-{"makefile", "(Makefile[^/]*|\\.mk)$", {
-	/* HiRed   */  "$^",
-	/* HiGreen */  "$^",
-	/* LoGreen */  "\\$+[{(][a-zA-Z0-9_-]+[})]",
-	/* HiMag   */  B"(if|ifeq|else|endif)"B,
-	/* LoMag   */  "$^",
-	/* HiBlue  */  "^[^ 	]+:",
-	/* LoRed   */  "[:=]",
-	/* LoBlue  */  "#.*$",
-	} },
-
-{"man", "\\.[1-9]x?$", {
-	/* HiRed   */  "\\.(BR?|I[PR]?).*$",
-	/* HiGreen */  "$^",
-	/* LoGreen */  "\\.(S|T)H.*$",
-	/* HiMag   */  "\\.(br|DS|RS|RE|PD)",
-	/* LoMag   */  "(\\.(S|T)H|\\.TP)",
-	/* HiBlue  */  "\\.(BR?|I[PR]?|PP)",
-	/* LoRed   */  "$^",
-	/* LoBlue  */  "\\\\f[BIPR]",
-	} },
-
-{"vala", "\\.(vapi|vala)$", {
-	/* HiRed   */  B"[A-Z_][0-9A-Z_]+"B,
-	/* HiGreen */  B"(for|if|while|do|else|case|default|switch|get|set|value|out|ref|enum)"B,
-	/* LoGreen */  B"(uint|uint8|uint16|uint32|uint64|bool|byte|ssize_t|size_t|char|double|string|float|int|long|short|this|base|transient|void|true|false|null|unowned|owned)"B,
-	/* HiMag   */  B"(try|catch|throw|finally|continue|break|return|new|sizeof|signal|delegate)"B,
-	/* LoMag   */  B"(abstract|class|final|implements|import|instanceof|interface|using|private|public|static|strictfp|super|throws)"B,
-	/* HiBlue  */  "(\\(|\\)|\\{|\\}|\\[|\\])",
-	/* LoRed   */  "\"(\\\\.|[^\"])*\"",
-	/* LoBlue  */  "(//.*|/\\*([^*]|\\*[^/])*\\*/|/\\*([^*]|\\*[^/])*$|^([^/]|/[^*])*\\*/)",
-	} },
-{"java", "\\.java$", {
-	/* HiRed   */  B"[A-Z_][0-9A-Z_]+"B,
-	/* HiGreen */  B"(for|if|while|do|else|case|default|switch)"B,
-	/* LoGreen */  B"(boolean|byte|char|double|float|int|long|short|transient|void|true|false|null)"B,
-	/* HiMag   */  B"(try|catch|throw|finally|continue|break|return|new)"B,
-	/* LoMag   */  B"(abstract|class|extends|final|implements|import|instanceof|interface|native|package|private|protected|public|static|strictfp|this|super|synchronized|throws|volatile)"B,
-	/* HiBlue  */  "(\\(|\\)|\\{|\\}|\\[|\\])",
-	/* LoRed   */  "\"(\\\\.|[^\"])*\"",
-	/* LoBlue  */  "(//.*|/\\*([^*]|\\*[^/])*\\*/|/\\*([^*]|\\*[^/])*$|^([^/]|/[^*])*\\*/)",
-	} },
-{"ruby", "\\.rb$", {
-	/* HiRed   */  "(\\$|@|@@)?"B"[A-Z]+[0-9A-Z_a-z]*",
-	/* HiGreen */  B"(__FILE__|__LINE__|BEGIN|END|alias|and|begin|break|case|class|def|defined\?|do|else|elsif|end|ensure|false|for|if|in|module|next|nil|not|or|redo|rescue|retry|return|self|super|then|true|undef|unless|until|when|while|yield)"B,
-	/* LoGreen */  "([ 	]|^):[0-9A-Z_]+"B,
-	/* HiMag   */  "(/([^/]|(\\/))*/[iomx]*|%r\\{([^}]|(\\}))*\\}[iomx]*)",
-	/* LoMag   */  "(`[^`]*`|%x\\{[^}]*\\})",
-	/* HiBlue  */  "(\"([^\"]|(\\\\\"))*\"|%[QW]?\\{[^}]*\\}|%[QW]?\\([^)]*\\)|%[QW]?<[^>]*>|%[QW]?\\[[^]]*\\]|%[QW]?\\$[^$]*\\$|%[QW]?\\^[^^]*\\^|%[QW]?![^!]*!|\'([^\']|(\\\\\'))*\'|%[qw]\\{[^}]*\\}|%[qw]\\([^)]*\\)|%[qw]<[^>]*>|%[qw]\\[[^]]*\\]|%[qw]\\$[^$]*\\$|%[qw]\\^[^^]*\\^|%[qw]![^!]*!)",
-	/* LoRed   */  "#\\{[^}]*\\}",
-	/* LoBlue  */  "(#[^{].*$|#$)",
-	} },
-#else  /* HILIGHT_SYNTAX */
-{"", "\0", { "\0", "\0", "\0", "\0", "\0", "\0", "\0", "\0" } }
-#endif /* HILIGHT_SYNTAX */
-};
 
 /* Colors */
 static const short  fgcolors[LastFG] = {

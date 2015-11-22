@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <locale.h>
+#include <regex.h>
 #include <ncurses.h>
 #include <signal.h>
 #include <stdio.h>
@@ -80,6 +81,20 @@ typedef struct {                    /** A mouse click */
 	const Arg arg;                  /* Argument to func() */
 } Click;
 
+typedef struct {                    /** A command read at the fifo */
+	const char *re_text;            /* A regex to match the command, must have a parentheses group for argument */
+	bool(*test[3])(void);           /* Conditions to match, make sure the last one is 0x00 */
+	void (*func)(const Arg * arg);  /* Function to perform, argument is determined as arg->v from regex above */
+	const Arg arg;                  /* Argument to func(), if empty will fill .v = re_match */
+} Command;
+
+#define SYN_COLORS 8
+typedef struct {               /** A syntax definition */
+	char *name;                /* Syntax name */
+	char *file_re_text;        /* Apply to files matching this regex */
+	char *re_text[SYN_COLORS]; /* Apply colors (in order) matching these regexes */
+} Syntax;
+
 typedef struct Undo Undo;
 struct Undo {                   /** Undo information */
 	char flags;                 /* Flags: is insert/delete?, should concatenate with next undo/redo? */
@@ -103,12 +118,15 @@ enum { ExtDefault, ExtWord, ExtLines, ExtAll, };
 enum { LastNone, LastDelete, LastInsert, LastPipe, LastPipeRO, };
 
 /* Environment variables index */
-enum { EnvFind, EnvPipe, EnvLine, EnvOffset, EnvFile, EnvLast, };
+enum { EnvFind, EnvPipe, EnvLine, EnvOffset, EnvFile, EnvSyntax, EnvFifo,
+	EnvLast,
+};
 
 enum {                      /* To use in statusflags */
 	S_Running = 1,          /* Keep the editor running, flip to stop */
 	S_Readonly = 1 << 1,    /* File is readonly, this should be enforced so that file is not modified */
 	S_InsEsc = 1 << 2,      /* Insert next character as-is, even if it's a control sequence */
+	S_CaseIns = 1 << 3,     /* Search is casi insensitive */
 	S_Modified = 1 << 4,    /* File has been modified, set automatically */
 	S_DirtyScr = 1 << 5,    /* Screen is dirty and should be repainted, set automatically */
 	S_DirtyDown = 1 << 6,   /* Line has changed so that we must repaint from here down, set automatically */
@@ -137,6 +155,8 @@ static const char *envs[EnvLast] = {
 	[EnvLine] = "TE_LINE",
 	[EnvOffset] = "TE_OFFSET",
 	[EnvFile] = "TE_FILE",
+	[EnvSyntax] = "TE_SYNTAX",
+	[EnvFifo] = "TE_FIFO",
 };
 
 /* Variables */
@@ -147,8 +167,12 @@ static Filepos fsel;               /* Selection point on file */
 static Filepos fcur;               /* Insert position on file, cursor, current position */
 static Filepos fmrk = { NULL, 0 }; /* Mark */
 
+static int      syntx = -1;                          /* Current syntax index */
+static regex_t *find_res[2];                         /* Compiled regex for search term */
+static int      sel_re = 0;                          /* Index to the above, we keep 2 REs so regexec does not segfault */
 static int      ch;                                  /* Used to store input */
 static char     c[7];                                /* Used to store input */
+static char     fifopath[PATH_MAX];                  /* Path to command fifo */
 static char    *filename = NULL;                     /* Path to file loade on buffer */
 static char     title[BUFSIZ];                       /* Screen title */
 static char    *tmptitle = NULL;                     /* Screen title, temporary */
@@ -160,6 +184,7 @@ static Undo    *undos;                               /* Undo ring */
 static Undo    *redos;                               /* Redo ring */
 static int      textattrs[LastFG][LastBG];           /* Text attributes for each color pair */
 static int      savestep = 0;                        /* Index to determine the need to save in undo/redo action */
+static int      fifofd;                              /* Command fifo file descriptor */
 static long     statusflags = S_Running | S_Command; /* Status flags, very important, OR'd (see enums above) */
 static int      lastaction = LastNone;               /* The last action we took (see enums above) */
 static int      cols, lines;                         /* Ncurses: to use instead of COLS and LINES, wise */
@@ -194,6 +219,7 @@ static void f_save(const Arg *);
 static void f_select(const Arg *);
 static void f_spawn(const Arg *);
 static void f_suspend(const Arg *);
+static void f_syntax(const Arg * arg);
 static void f_toggle(const Arg * arg);
 static void f_undo(const Arg *);
 
@@ -218,9 +244,11 @@ static unsigned long i_lineno(Line *);
 static void          i_mouse(void);
 static void          i_multiply(void (*func)(const Arg * arg), const Arg arg);
 static void          i_pipetext(const char *);
+static void          i_readfifo(void);
 static void          i_readfile(char *);
 static void          i_resize(void);
 static Filepos       i_scrtofpos(int, int);
+static bool          i_setfindterm(const char *);
 static void          i_setup(void);
 static void          i_sigwinch(int);
 static void          i_sigcont(int);
@@ -265,6 +293,11 @@ static Filepos m_tomark(Filepos);
 static Filepos m_tosel(Filepos);
 
 #include "config.h"
+
+/* Some extra stuff that depends on config.h */
+static regex_t *cmd_res[LEN(cmds)];
+static regex_t *syntax_file_res[LEN(syntaxes)];
+static regex_t *syntax_res[LEN(syntaxes)][SYN_COLORS];
 
 char *argv0;
 
@@ -385,6 +418,20 @@ f_extsel(const Arg * arg) {
 		else
 			f_extsel(&(const Arg) { .i = ExtWord });
 	}
+}
+
+/* Find arg->v regex backwards, same as last if arg->v == NULL */
+void
+f_findbw(const Arg * arg) {
+	if(i_setfindterm((char *) arg->v))
+		i_find(FALSE);
+}
+
+/* Find arg->v regex forward, same as last if arg->v == NULL */
+void
+f_findfw(const Arg * arg) {
+	if(i_setfindterm((char *) arg->v))
+		i_find(TRUE);
 }
 
 /* Insert arg->v at cursor position. Your responsibility: call only if t_rw() */
@@ -563,6 +610,37 @@ f_suspend(const Arg * arg) {
 	raise(SIGSTOP);
 }
 
+/* Set syntax with name arg->v */
+void
+f_syntax(const Arg * arg) {
+	unsigned int i, j;
+
+	statusflags |= S_DirtyScr;
+	for(i = 0; i < LEN(syntaxes); i++)
+		if((arg && arg->v)
+			? !strcmp(arg->v, syntaxes[i].name)
+		    : !regexec(syntax_file_res[i], filename, 0, NULL, 0)) {
+			for(j = 0; j < SYN_COLORS; j++) {
+				if((syntx >= 0) && syntax_res[syntx][j])
+					regfree(syntax_res[syntx][j]);
+				if(syntaxes[i].re_text[j] &&
+				   regcomp(syntax_res[i][j],
+					syntaxes[i].re_text[j],
+					REG_EXTENDED | REG_NEWLINE))
+					i_die("Faulty regex.\n");
+			}
+			syntx = i;
+			setenv(envs[EnvSyntax], syntaxes[syntx].name, 1);
+			return;
+		}
+	for(i = 0; i < SYN_COLORS; i++) {
+		if((syntx >= 0) && syntax_res[syntx][i])
+			regfree(syntax_res[syntx][i]);
+	}
+	syntx = -1;
+	setenv(envs[EnvSyntax], "none", 1);
+}
+
 /* Toggle the arg->i statusflag. Careful with this one! */
 void
 f_toggle(const Arg * arg) {
@@ -570,6 +648,9 @@ f_toggle(const Arg * arg) {
 
 	/* Specific operations for some toggles */
 	switch (arg->i) {
+	case S_CaseIns: /* Re-compile regex with/without REG_ICASE */
+		i_setfindterm(getenv(envs[EnvFind]));
+		break;
 	case S_Warned: /* Set warning title */
 		tmptitle = "WARNING! File Modified!!!";
 		break;
@@ -753,9 +834,23 @@ i_calcvlen(Line * l) {
 /* Cleanup and exit */
 void
 i_cleanup(int sig) {
+	unsigned int i;
+
 	i_killundos(&undos);
 	i_killundos(&redos);
+	close(fifofd);
+	unlink(fifopath);
 	free(filename);
+	for(i = 0; i < LEN(cmds); i++)
+		regfree(cmd_res[i]);
+	for(i = 0; i < LEN(syntaxes); i++)
+		regfree(syntax_file_res[i]);
+	if(syntx >= 0) {
+		for(i = 0; i < SYN_COLORS; i++)
+			regfree(syntax_res[syntx][i]);
+	}
+	regfree(find_res[0]);
+	regfree(find_res[1]);
 	endwin();
 	exit(sig > 0 ? 128 + sig : t_mod()? EXIT_FAILURE : EXIT_SUCCESS);
 }
@@ -942,8 +1037,20 @@ i_edit(void) {
 		if(fsel.l != fcur.l || fsel.o != fcur.o)
 			HOOK_SELECT_ALL;
 #endif
+		FD_ZERO(&fds);
+		FD_SET(0, &fds);
+		FD_SET(fifofd, &fds);
 		signal(SIGWINCH, i_sigwinch);
+		if(select(FD_SETSIZE, &fds, NULL, NULL, NULL) == -1 &&
+		   errno == EINTR) {
+			signal(SIGWINCH, SIG_IGN);
+			continue;
+		}
 		signal(SIGWINCH, SIG_IGN);
+		if(FD_ISSET(fifofd, &fds))
+			i_readfifo();
+		if(!FD_ISSET(0, &fds))
+			continue;
 		if((ch = wgetch(textwin)) == ERR) {
 			tmptitle = "ERR";
 			continue;
@@ -1006,6 +1113,62 @@ i_edit(void) {
 		else {
 			tmptitle = "WARNING! File is read-only!!!";
 		}
+	}
+}
+
+/* Find text as per the current find_res[sel_re] */
+void
+i_find(bool fw) {
+	char *s, *subs;
+	int wp, _so, _eo, status, flags;
+	Filepos start, end;
+	regmatch_t result[1];
+
+	start.l = fstline;
+	start.o = 0;
+	end.l = lstline;
+	end.o = lstline->len;
+	i_sortpos(&fsel, &fcur);
+
+	for(wp = 0; wp < 2; wp++) {
+		if(wp > 0)
+			s = i_gettext(start, end);
+		else if(fw)
+			s = i_gettext(fcur, end);
+		else
+			s = i_gettext(start, fsel);
+
+		flags = 0;
+		if(fw && (fcur.o != 0))
+			flags = REG_NOTBOL;
+		else if(!fw && (fsel.o != fsel.l->len))
+			flags = REG_NOTEOL;
+
+		if((status = regexec(find_res[sel_re], s, 1, result, flags)) == 0) {
+			f_mark(NULL);
+			if(wp > 0 || !fw)
+				fcur = start;
+			fsel = fcur;
+			_so = result[0].rm_so;
+			_eo = result[0].rm_eo;
+			if(!fw) {
+				subs = &s[_eo];
+				while(!regexec(find_res[sel_re], subs, 1,
+					result, REG_NOTBOL)
+				    && result[0].rm_eo) {
+					/* This is blatantly over-simplified: do not try to match
+					 * an empty string backwards as it will match the first hit
+					 * on the file. */
+					_so = _eo + result[0].rm_so;
+					_eo += result[0].rm_eo;
+					subs = &s[_eo];
+				}
+			}
+			i_advpos(&fsel, _so);
+			i_advpos(&fcur, _eo);
+			wp++;
+		}
+		free(s);
 	}
 }
 
@@ -1261,6 +1424,45 @@ i_pipetext(const char *cmd) {
 	free(s);
 }
 
+/* Read the command fifo */
+void
+i_readfifo(void) {
+	char *buf, *tofree;
+	regmatch_t result[2];
+	unsigned int i;
+	int r;
+
+	tofree = ecalloc(1, BUFSIZ + 1);
+	buf = tofree;
+	r = read(fifofd, buf, BUFSIZ);
+	if(r != -1) {
+		buf[r] = '\0';
+		buf = strtok(buf, "\n");
+		while(buf != NULL) {
+			for(i = 0; i < LEN(cmds); i++) {
+				if(!regexec(cmd_res[i], buf, 2, result, 0) &&
+				   i_dotests(cmds[i].test)) {
+					*(buf + result[1].rm_eo) = '\0';
+					if(cmds[i].arg.i > 0)
+						cmds[i].func(&(cmds[i].arg));
+					else
+						cmds[i].func(&(const Arg) { .v = (buf + result[1].rm_so) });
+					break;
+				}
+			}
+			buf = strtok(NULL, "\n");
+		}
+	}
+	free(tofree);
+
+	/* Kludge: we close and reopen to circumvent a bug?
+	 * if we don't do this, fifofd seems to be always ready to select()
+	 * also, I was unable to mark fifofd as blocking after opening */
+	close(fifofd);
+	if((fifofd = open(fifopath, O_RDONLY | O_NONBLOCK)) == -1)
+		i_die("Can't open FIFO for reading.\n");
+}
+
 /* Read file content into the Line* structure */
 void
 i_readfile(char *fname) {
@@ -1290,6 +1492,7 @@ i_readfile(char *fname) {
 				return;
 			}
 		}
+		f_syntax(NULL); /* Try to guess a syntax */
 	}
 
 	buf = ecalloc(1, BUFSIZ + 1);
@@ -1368,6 +1571,27 @@ i_scrtofpos(int x, int y) {
 }
 #endif /* HANDLE_MOUSE */
 
+/* Update find_res[sel_re] and sel_re. Return TRUE if find term is a valid
+   RE or NULL */
+bool
+i_setfindterm(const char *find_term) {
+	int flags;
+
+	/* Modify find term; use NULL to repeat search */
+	if(!find_term)
+		return TRUE;
+
+	flags = REG_EXTENDED | REG_NEWLINE;
+	if(statusflags & S_CaseIns)
+		flags |= REG_ICASE;
+	if(!regcomp(find_res[sel_re ^ 1], find_term, flags)) {
+		sel_re ^= 1;
+		setenv(envs[EnvFind], find_term, 1);
+		return TRUE;
+	}
+	return FALSE;
+}
+
 /* Setup everything */
 void
 i_setup(void) {
@@ -1375,19 +1599,47 @@ i_setup(void) {
 	Line *l = NULL;
 
 	/* Signal handling, default */
+	/* TODO: use sigaction() ? */
 	signal(SIGWINCH, SIG_IGN);
 	signal(SIGINT, i_cleanup);
 	signal(SIGTERM, i_cleanup);
 
 	/* Some allocs */
 	title[0] = '\0';
+	fifopath[0] = '\0';
+	find_res[0] = (regex_t *) ecalloc(1, sizeof(regex_t));
+	find_res[1] = (regex_t *) ecalloc(1, sizeof(regex_t));
+
+	for(i = 0; i < LEN(cmds); i++) {
+		cmd_res[i] = (regex_t *) ecalloc(1, sizeof(regex_t));
+		if(regcomp(cmd_res[i], cmds[i].re_text,
+			REG_EXTENDED | REG_ICASE | REG_NEWLINE))
+			i_die("Faulty regex.\n");
+	}
+
+	for(i = 0; i < LEN(syntaxes); i++) {
+		syntax_file_res[i] = (regex_t *) ecalloc(1, sizeof(regex_t));
+		if(regcomp(syntax_file_res[i], syntaxes[i].file_re_text,
+			REG_EXTENDED | REG_NOSUB | REG_ICASE | REG_NEWLINE))
+			i_die("Faulty regex.\n");
+		for(j = 0; j < SYN_COLORS; j++)
+			syntax_res[i][j] = (regex_t *) ecalloc(1, sizeof(regex_t));
+	}
+
+	snprintf(fifopath, sizeof(fifopath), "%s%d", fifobase, getpid());
+	if(mkfifo(fifopath, (S_IRUSR | S_IWUSR)) != 0)
+		i_die("FIFO already exists.\n");
+	if((fifofd = open(fifopath, O_RDONLY | O_NONBLOCK)) == -1)
+		i_die("Can't open FIFO for reading.\n");
+	setenv(envs[EnvFifo], fifopath, 1);
+	regcomp(find_res[0], "\0\0", 0); /* This should not match anything */
+	regcomp(find_res[1], "\0\0", 0);
 
 	if(!newterm(NULL, stderr, stdin)) {
 		if(!(newterm("xterm", stderr, stdin)))
 			i_die("Can't fallback $TERM to xterm, exiting...\n");
 		tmptitle = "WARNING! $TERM not recognized, using xterm as fallback!!!";
 	}
-
 	if(has_colors()) {
 		start_color();
 		use_default_colors();
@@ -1508,6 +1760,7 @@ i_update(void) {
 	long int nscr, ncur = 1, nlst = 1; /* Line number for scrline, fcur.l and lstline */
 	size_t ichar;
 	bool selection;
+	regmatch_t match[SYN_COLORS][1];
 	Line *l;
 	char c[7], buf[16];
 
@@ -1583,6 +1836,11 @@ i_update(void) {
 			/* Print line content */
 			if(l)
 				l->dirty = FALSE;
+			if(syntx >= 0 && l)
+				for(i = 0; i < SYN_COLORS; i++)
+					if(regexec(syntax_res[syntx][i], l->c, 1, match[i], 0) ||
+						match[i][0].rm_so == match[i][0].rm_eo)
+						match[i][0].rm_so = match[i][0].rm_eo = -1;
 			for(ixrow = ichar = ivchar = 0; ixrow < vlines && (irow + ixrow) < LINESABS; ixrow++) {
 				wmove(textwin, (irow + ixrow), (ivchar % cols));
 				while(ivchar < (1 + ixrow) * cols) {
@@ -1595,6 +1853,20 @@ i_update(void) {
 						ifg = CurFG, ibg = CurBG;
 					if(selection)
 						ifg = SelFG, ibg = SelBG;
+					if(syntx >= 0 && l)
+						for(i = 0; i < SYN_COLORS; i++) {
+							if(match[i][0].rm_so == -1)
+								continue;
+							if(ichar >= (size_t) match[i][0].rm_eo) {
+								if(regexec(syntax_res[syntx][i], &l->c [ichar], 1, match[i],REG_NOTBOL) ||
+								    match[i][0].rm_so == match[i][0].rm_eo)
+									continue;
+								match[i][0].rm_so += ichar;
+								match[i][0].rm_eo += ichar;
+							}
+							if(ichar >= (size_t) match[i][0].rm_so && ichar < (size_t) match[i][0].rm_eo)
+								ifg = Syn0FG + i;
+						}
 					wattrset(textwin, textattrs[ifg][ibg]);
 					if(l && ichar < l->len) {
 						/* Tab nightmare */
@@ -1672,7 +1944,7 @@ i_update(void) {
 	} else {
 		statusflags &= ~S_Warned;	/* Reset warning */
 		snprintf(buf, 4, "%ld%%", (100 * ncur) / nlst);
-		snprintf(title, BUFSIZ, "%s%s [%s]%s%s %ld,%d  %s",
+		snprintf(title, BUFSIZ, "%s%s [%s]%s%s%s%s %ld,%d  %s",
 		    t_vis()? "Visual " :
 #if VIM_BINDINGS
 		    (t_ins()? "Insert " : "Command "),
@@ -1680,7 +1952,9 @@ i_update(void) {
 		    "",
 #endif /* VIM_BINDINGS */
 		    (statusflags & S_DumpStdout ? "<Stdout>" : (filename == NULL ? "<No file>" : filename)),
+		    (syntx >= 0 ? syntaxes[syntx].name : "none"),
 		    (t_mod()? "[+]" : ""), (!t_rw()? "[RO]" : ""),
+		    (statusflags & S_CaseIns ? "[icase]" : ""),
 		    (statusflags & S_AutoIndent ? "[ai]" : ""), ncur,
 		    (int) fcur.o,
 		    (scrline == fstline ? (nlst <
@@ -1714,7 +1988,7 @@ i_update(void) {
 void
 i_usage(void) {
 	i_die("te - simple editor\n"
-	      "usage: te [-a] [-d] [-r] [-u] [-t TABSTOP] [file | -]\n");
+	      "usage: te [-a] [-d] [-r] [-u] [-t TABSTOP] [-S] [-s SYNTAX] [file | -]\n");
 }
 
 /* Write buffer to disk */
@@ -2042,8 +2316,11 @@ t_warn(void) {
 	return (statusflags & S_Warned);
 }
 
+/* main() starts everything else */
 int
 main(int argc, char *argv[]) {
+	char *local_syn = NULL;
+
 	/* Use system locale, hopefully UTF-8 */
 	setlocale(LC_ALL, "");
 
@@ -2060,6 +2337,12 @@ main(int argc, char *argv[]) {
 	case 't':
 		tabstop = atoi(EARGF(i_usage()));
 		break;
+	case 'S':
+		local_syn = "";
+		break;
+	case 's':
+		local_syn = EARGF(i_usage());
+		break;
 	case 'v':
 		i_die("te-" VERSION ", © 2014 te engineers, see LICENSE for details\n");
 		break;
@@ -2072,6 +2355,9 @@ main(int argc, char *argv[]) {
 
 	if(argc > 0)
 		i_readfile(argv[0]);
+
+	if(local_syn)
+		f_syntax(&(const Arg) { .v = local_syn });
 
 	i_edit();
 	i_cleanup(EXIT_SUCCESS);
