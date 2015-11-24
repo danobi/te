@@ -2,5 +2,6 @@
 	- The FIFO was used internally to execute commands (such as :q)
 [x] rip out regex
 [x] rip out syntax colors
-[ ] rip out mouse support
+[x] rip out mouse support
+[ ] see what else needs to be ripped out
 [ ] add in command support again
