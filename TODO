@@ -4,5 +4,7 @@
 [x] rip out syntax colors
 [x] rip out mouse support
 [x] rip out piping feature
-[ ] see what else needs to be ripped out
+[x] see what else needs to be ripped out
+[ ] comment every function extensively
+[ ] remap all existing emacs keybindings to vim bindings
 [ ] add in command support again
