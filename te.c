@@ -917,7 +917,6 @@ i_edit(void) {
 		if(t_rw() && t_ins()) {
 			f_insert(&(const Arg) { .v = c });
 		}
-#if VIM_BINDINGS
 		else if(!t_ins()) {
 			if(ch >= '0' && ch <= '9' && !(statusflags & S_Parameter)) {
 				if(statusflags & S_Multiply) {
@@ -931,7 +930,6 @@ i_edit(void) {
 				i_dokeys(commkeys, LEN(commkeys));
 			}
 		}
-#endif /* VIM_BINDINGS */
 		else {
 			tmptitle = "WARNING! File is read-only!!!";
 		}
@@ -1385,11 +1383,7 @@ i_update(void) {
 		snprintf(buf, 4, "%ld%%", (100 * ncur) / nlst);
 		snprintf(title, BUFSIZ, "%s%s [%s]%s%s %ld,%d  %s",
 		    t_vis()? "Visual " :
-#if VIM_BINDINGS
 		    (t_ins()? "Insert " : "Command "),
-#else
-		    "",
-#endif /* VIM_BINDINGS */
 		    (statusflags & S_DumpStdout ? "<Stdout>" : (filename == NULL ? "<No file>" : filename)),
 		    (t_mod()? "[+]" : ""), (!t_rw()? "[RO]" : ""),
 		    (statusflags & S_AutoIndent ? "[ai]" : ""), ncur,
@@ -1700,11 +1694,7 @@ t_mod(void) {
 /* TRUE if we are not in command mode */
 bool
 t_ins(void) {
-#if VIM_BINDINGS
 	return !(statusflags & S_Command);
-#else
-	return TRUE;
-#endif /* VIM_BINDINGS */
 }
 
 /* TRUE if the file is writable */
@@ -1728,11 +1718,7 @@ t_sel(void) {
 /* TRUE if a sentence has started */
 bool
 t_sent(void) {
-#if VIM_BINDINGS
 	return (statusflags & S_Sentence);
-#else
-	return FALSE;
-#endif /* VIM_BINDINGS */
 }
 
 /* TRUE if there is anything to undo */

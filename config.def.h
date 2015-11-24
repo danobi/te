@@ -4,7 +4,6 @@
 #define HILIGHT_CURRENT 1
 #define HILIGHT_SYNTAX  1
 #define SHOW_NONPRINT   0
-#define VIM_BINDINGS    1
 
 /* Things unlikely to be changed, yet still in the config.h file */
 static const bool   isutf8     = TRUE;
