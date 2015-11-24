@@ -117,11 +117,7 @@ static const Key stdkeys[] = {
 { .keyv.c = META('x'),    { 0,     0,    0,   0 },  f_spawn,     CMD_P },
 { .keyv.c = CONTROL('Z'), { 0,     0,    0,   0 },  f_suspend,   { 0                  } },
 { .keyv.c = CONTROL('['), { t_vis, 0,    0,   0 },  f_toggle,    { .i = S_Visual      } },
-#if VIM_BINDINGS
-{ .keyv.c = CONTROL('['), { t_ins, 0,  0,   0 },  f_toggle,    { .i = S_Command     } },
-#else
-{ .keyv.c = CONTROL('['), { 0,     0,    0,   0 },  f_spawn,     CMD_P },
-#endif
+{ .keyv.c = CONTROL('['), { t_ins, 0,  0,   0 },  f_toggle,      { .i = S_Command     } },
 { .keyv.c = META('\\'),   { t_rw,  0,    0,   0 },  f_spawn,     SED                    },
 { .keyv.c = CONTROL(']'), { 0,     0,    0,   0 },  f_extsel,    { .i = ExtDefault    } },
 { .keyv.c = CONTROL('^'), { t_redo,t_rw, 0,   0 },  f_undo,      { .i = -1 } },
@@ -132,10 +128,9 @@ static const Key stdkeys[] = {
 { .keyv.c = META('.'),    { 0,     0,    0,   0 },  f_move,      { .m = m_eof         } },
 };
 
-#if VIM_BINDINGS
 /* TODO: add better paste support (if whole line was yanked, append above,
  *       not where you are) */
-static const Key commkeys[] = { /* Command mode keys here */
+static const Key commkeys[] = { /* Vim command mode keys here */
 /* keyv.c,                  tests,                     func,       arg */
 { .keyv.c = { '$' },      { t_sent,0,    0,   0 },  f_adjective, { .m = m_eol          } },
 { .keyv.c = { '$' },      { 0,     0,    0,   0 },  f_move,      { .m = m_eol          } },
@@ -207,7 +202,6 @@ static const Key commkeys[] = { /* Command mode keys here */
  * </> ident
  */
 };
-#endif
 
 /* Colors */
 static const short  fgcolors[LastFG] = {
