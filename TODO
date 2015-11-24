@@ -6,5 +6,6 @@
 [x] rip out piping feature
 [x] see what else needs to be ripped out
 [ ] comment every function extensively
+[ ] merge `arg.h` into `te.c`
 [ ] remap all existing emacs keybindings to vim bindings
 [ ] add in command support again
