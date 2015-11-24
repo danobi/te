@@ -42,6 +42,10 @@ clean:
 	@echo cleaning
 	@rm -f te $(OBJ) te-$(VERSION).tar.gz
 
+full-clean: clean
+	@echo full cleaning
+	@rm -f config.h
+
 dist: clean
 	@echo creating dist tarball
 	@mkdir -p te-$(VERSION)
