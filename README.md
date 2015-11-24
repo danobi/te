@@ -9,7 +9,7 @@ In order to build `te` you need:
 
 - ncurses header files
 
-- an OS that has supports the SIGWINCH signal.
+- an OS that supports the SIGWINCH signal.
 
 
 Installation
