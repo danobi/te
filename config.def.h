@@ -22,11 +22,6 @@ static const char   spcstr[2]  = { ' ', 0 };
 static const char   nlstr[1]   = { 0 };
 #endif
 
-/* Helper config functions, not used in main code */
-static void f_pipeai(const Arg*);
-static void f_pipeline(const Arg*);
-static void f_pipenull(const Arg*);
-
 /* Args to f_spawn */
 #define PROMPT(prompt, default, cmd) { .v = (const char *[]){ "/bin/sh", "-c", \
 	"dmenu -v >/dev/null 2>&1 || DISPLAY=\"\";"\
@@ -37,27 +32,10 @@ static void f_pipenull(const Arg*);
 
 #define FIND    PROMPT("Find:",        "${TE_FIND}",   "/")
 #define FINDBW  PROMPT("Find (back):", "${TE_FIND}",   "?")
-#define PIPE    PROMPT("Pipe:",        "${TE_PIPE}",   "!")
 #define SAVEAS  PROMPT("Save as:",     "${TE_FILE}",   "w")
 #define REPLACE PROMPT("Replace:",     "",                "!echo -n ")
 #define SED     PROMPT("Sed:",         "",                "!sed ")
 #define CMD_P   PROMPT("Command:",     "/\n?\nw\nq\n!\nsyntax\noffset\nicase\nro\nai\ndump", "")
-
-/* Args to f_pipe and friends, simple examples are inlined instead */
-#define TOCLIP     "tee /tmp/.te.clipboard.$USER | xsel -ib 2>/dev/null"
-#define FROMCLIP   "xsel -ob 2>/dev/null || cat /tmp/.te.clipboard.$USER"
-#define TOSEL      "tee /tmp/.te.selection.$USER | xsel -i 2>/dev/null"
-#define FROMSEL    "xsel -o 2>/dev/null || cat /tmp/.te.selection.$USER"
-#define AUTOINDENT "awk 'BEGIN{ l=\"\\n\" }; \
-				{ if(match($0, \"^[\t ]+[^\t ]\")) l=substr($0, RSTART, RLENGTH-1); \
-				  else l=\"\"; \
-				  if(FNR==NR && $0 ~ /^[\t ]+$/) print \"\"; \
-				  else print }; \
-				END{ ORS=\"\"; print l }' 2>/dev/null"
-#define CAPITALIZE "awk 'BEGIN{ ORS=\"\" }; \
-				{ for ( i=1; i <= NF; i++) { $i=tolower($i) ; sub(\".\", substr(toupper($i),1,1) , $i) } \
-				if(FNR==NF) print $0; \
-				else print $0\"\\n\" }' 2>/dev/null"
 
 /* Hooks are launched from the main code */
 #define HOOK_SAVE_NO_FILE f_spawn (&(const Arg)SAVEAS)
@@ -78,8 +56,6 @@ static const Key curskeys[] = { /* Plain keys here, no CONTROL or META */
 { .keyv.i = KEY_DC,         { t_rw,  0,    0,   0 },   f_delete,    { .m = m_nextchar } },
 { .keyv.i = KEY_SDC,        { t_sel, t_rw, 0,   0 },   f_delete,    { .m = m_tosel    } },
 { .keyv.i = KEY_SDC,        { t_rw,  0,    0,   0 },   f_delete,    { .m = m_nextchar } },
-{ .keyv.i = KEY_IC,         { t_sel, 0,    0,   0 },   f_pipero,    { .v = TOCLIP     } },
-{ .keyv.i = KEY_SIC,        { t_rw,  0,    0,   0 },   f_pipenull,  { .v = FROMCLIP   } },
 { .keyv.i = KEY_HOME,       { t_ai,  0,    0,   0 },   f_move,      { .m = m_smartbol } },
 { .keyv.i = KEY_HOME,       { 0,     0,    0,   0 },   f_move,      { .m = m_bol      } },
 { .keyv.i = KEY_END,        { 0,     0,    0,   0 },   f_move,      { .m = m_eol      } },
@@ -111,8 +87,6 @@ static const Key stdkeys[] = {
 { .keyv.c = CONTROL('C'), { t_warn,t_mod,0,   0 },  f_toggle,    { .i = S_Running     } },
 { .keyv.c = CONTROL('C'), { t_mod, 0,    0,   0 },  f_toggle,    { .i = S_Warned      } },
 { .keyv.c = CONTROL('C'), { 0,     0,    0,   0 },  f_toggle,    { .i = S_Running     } },
-{ .keyv.c = META('c'),    { t_sel, t_rw, 0,   0 },  f_pipe,      { .v = CAPITALIZE    } },
-{ .keyv.c = CONTROL('D'), { t_sel, t_rw, 0,   0 },  f_pipe,      { .v = TOCLIP        } },
 { .keyv.c = CONTROL('D'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_nextchar    } },
 { .keyv.c = META('d'),    { t_rw,  0,    0,   0 },  f_delete,    { .m = m_nextword    } },
 { .keyv.c = CONTROL('E'), { 0,     0,    0,   0 },  f_move,      { .m = m_eol         } },
@@ -121,14 +95,11 @@ static const Key stdkeys[] = {
 { .keyv.c = CONTROL('G'), { t_sel, 0,    0,   0 },  f_select,    { .m = m_stay        } },
 { .keyv.c = CONTROL('H'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_prevchar    } },
 { .keyv.c = CONTROL('I'), { t_rw,  t_ins,0,   0 },  f_insert,    { .v = "\t"          } },
-{ .keyv.c = CONTROL('J'), { t_rw,  t_ai, 0,   0 },  f_pipeai,    { .v = AUTOINDENT    } },
 { .keyv.c = CONTROL('J'), { t_rw,  t_ins,0,   0 },  f_insert,    { .v = "\n"          } },
 { .keyv.c = CONTROL('J'), { 0,     0,    0,   0 },  f_move,      { .m = m_nextline    } },
 { .keyv.c = CONTROL('K'), { t_eol, t_rw, 0,   0 },  f_delete,    { .m = m_nextchar    } },
 { .keyv.c = CONTROL('K'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_eol         } },
 { .keyv.c = CONTROL('L'), { 0,     0,    0,   0 },  f_center,    { 0                  } },
-{ .keyv.c = META('l'),    { t_sel, t_rw, 0,   0 },  f_pipe,      { .v = "tr [A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞ] [a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþ]" } }, /* Lowercase */
-{ .keyv.c = CONTROL('M'), { t_rw,  t_ai, 0,   0 },  f_pipeai,    { .v = AUTOINDENT    } } ,
 { .keyv.c = CONTROL('M'), { t_rw,  t_ins,0,   0 },  f_insert,    { .v = "\n"          } },
 { .keyv.c = CONTROL('M'), { 0,     0,    0,   0 },  f_move,      { .m = m_nextline    } },
 { .keyv.c = CONTROL('N'), { 0,     0,    0,   0 },  f_move,      { .m = m_nextline    } },
@@ -137,17 +108,14 @@ static const Key stdkeys[] = {
 { .keyv.c = CONTROL('Q'), { t_rw,  0,    0,   0 },  f_toggle,    { .i = S_InsEsc      } },
 { .keyv.c = CONTROL('R'), { t_redo,t_rw, 0,   0 },  f_undo,      { .i = -1            } },
 { .keyv.c = CONTROL('S'), { 0,     0,    0,   0 },  f_spawn,     FIND },
-{ .keyv.c = CONTROL('T'), { 0,     0,    0,   0 },  f_pipero ,   { .v = TOCLIP        } },
 { .keyv.c = CONTROL('U'), { t_bol, t_rw, 0,   0 },  f_delete,    { .m = m_prevchar    } },
 { .keyv.c = CONTROL('U'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_bol         } },
-{ .keyv.c = META('u'),    { t_sel, t_rw, 0,   0 },  f_pipe,      { .v = "tr [a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþ] [A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞ] | sed 's/ß/SS/g'" } }, /* Uppercase */
 { .keyv.c = CONTROL('V'), { 0,     0,    0,   0 },  f_move,      { .m = m_prevscr     } },
 { .keyv.c = META('v'),    { 0,     0,    0,   0 },  f_move,      { .m = m_nextscr     } },
 { .keyv.c = CONTROL('W'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_prevword    } },
 { .keyv.c = CONTROL('X'), { t_mod, t_rw, 0,   0 },  f_save,      { 0 } },
 { .keyv.c = CONTROL('X'), { 0,     0,    0,   0 },  f_toggle,    { .i = S_Running } },
 { .keyv.c = META('x'),    { 0,     0,    0,   0 },  f_spawn,     CMD_P },
-{ .keyv.c = CONTROL('Y'), { t_rw,  0,    0,   0 },  f_pipenull,  { .v = FROMCLIP } },
 { .keyv.c = CONTROL('Z'), { 0,     0,    0,   0 },  f_suspend,   { 0                  } },
 { .keyv.c = CONTROL('['), { t_vis, 0,    0,   0 },  f_toggle,    { .i = S_Visual      } },
 #if VIM_BINDINGS
@@ -155,12 +123,10 @@ static const Key stdkeys[] = {
 #else
 { .keyv.c = CONTROL('['), { 0,     0,    0,   0 },  f_spawn,     CMD_P },
 #endif
-{ .keyv.c = CONTROL('\\'),{ t_rw,  0,    0,   0 },  f_spawn,     PIPE                   },
 { .keyv.c = META('\\'),   { t_rw,  0,    0,   0 },  f_spawn,     SED                    },
 { .keyv.c = CONTROL(']'), { 0,     0,    0,   0 },  f_extsel,    { .i = ExtDefault    } },
 { .keyv.c = CONTROL('^'), { t_redo,t_rw, 0,   0 },  f_undo,      { .i = -1 } },
 { .keyv.c = CONTROL('^'), { t_rw,  0,    0,   0 },  f_repeat,    { 0 } },
-{ .keyv.c = META('6'),    { t_rw,  0,    0,   0 },  f_pipeline,  { .v = "tr '\n' ' '" } }, /* Join lines */
 { .keyv.c = META('5'),    { t_sel, t_rw, 0,   0 },  f_spawn,     REPLACE },
 { .keyv.c = CONTROL('?'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_prevchar    } },
 { .keyv.c = META(','),    { 0,     0,    0,   0 },  f_move,      { .m = m_bof         } },
@@ -189,7 +155,6 @@ static const Key commkeys[] = { /* Command mode keys here */
 { .keyv.c = { 'C' },      { t_rw,  0,    0,   0 },  f_toggle,    { .i = S_Command      } },
 { .keyv.c = { 'd' },      { t_sel, t_rw, 0,   0 },  f_delete,    { .m = m_tosel        } },
 { .keyv.c = { 'd' },      { t_rw,  0,    0,   0 },  f_delete,    { .m = m_sentence     } },
-/*{ .keyv.c = { 'd' },      { t_rw,  0,    0,   0 },  f_pipe,      { .m = m_sentence, .v = TOCLIP } }, */
 { .keyv.c = { 'D' },      { t_rw,  0,    0,   0 },  f_delete,    { .m = m_eol          } },
 { .keyv.c = { 'g' },      { t_sent,0,    0,   0 },  f_adjective, { .m = m_bof          } },
 { .keyv.c = { 'g' },      { 0,     0,    0,   0 },  f_move,      { .m = m_bof          } },
@@ -206,20 +171,17 @@ static const Key commkeys[] = { /* Command mode keys here */
 { .keyv.c = { 'l' },      { 0,     0,    0,   0 },  f_move,      { .m = m_nextchar     } },
 { .keyv.c = { 'm' },      { 0,     0,    0,   0 },  f_mark,      { .i = 0              } },
 { .keyv.c = { 'o' },      { t_rw,  t_ai, 0,   0 },  f_move,      { .m = m_eol          } },
-{ .keyv.c = { 'o' },      { t_rw,  t_ai, 0,   0 },  f_pipeai,    { .v = AUTOINDENT     } },
 { .keyv.c = { 'o' },      { t_rw,  t_ai, 0,   0 },  f_toggle,    { .i = S_Command      } },
 { .keyv.c = { 'o' },      { t_rw,  0,    0,   0 },  f_move,      { .m = m_eol          } },
 { .keyv.c = { 'o' },      { t_rw,  0,    0,   0 },  f_insert,    { .v = "\n"           } },
 { .keyv.c = { 'o' },      { t_rw,  0,    0,   0 },  f_toggle,    { .i = S_Command      } },
 { .keyv.c = { 'O' },      { t_rw,  t_ai, 0,   0 },  f_move,      { .m = m_bol          } },
-{ .keyv.c = { 'O' },      { t_rw,  t_ai, 0,   0 },  f_pipeai,    { .v = AUTOINDENT     } },
 { .keyv.c = { 'O' },      { t_rw,  t_ai, 0,   0 },  f_move,      { .m = m_prevline     } },
 { .keyv.c = { 'O' },      { t_rw,  t_ai, 0,   0 },  f_toggle,    { .i = S_Command      } },
 { .keyv.c = { 'O' },      { t_rw,  0,    0,   0 },  f_move,      { .m = m_bol          } },
 { .keyv.c = { 'O' },      { t_rw,  0,    0,   0 },  f_insert,    { .v = "\n"           } },
 { .keyv.c = { 'O' },      { t_rw,  0,    0,   0 },  f_move,      { .m = m_prevline     } },
 { .keyv.c = { 'O' },      { t_rw,  0,    0,   0 },  f_toggle,    { .i = S_Command      } },
-{ .keyv.c = { 'p' },      { t_rw,  0,    0,   0 },  f_pipenull,  { .v = FROMCLIP       } },
 { .keyv.c = { 's' },      { t_sel, t_rw, 0,   0 },  f_delete,    { .m = m_tosel        } },
 { .keyv.c = { 's' },      { t_sel, t_rw, 0,   0 },  f_toggle,    { .i = S_Command      } },
 { .keyv.c = { 's' },      { t_rw,  0,    0,   0 },  f_delete,    { .m = m_nextchar     } },
@@ -232,9 +194,6 @@ static const Key commkeys[] = { /* Command mode keys here */
 { .keyv.c = { 'x' },      { t_rw,  0,    0,   0 },  f_delete,    { .m = m_nextchar     } },
 { .keyv.c = { 'X' },      { t_sel, t_rw, 0,   0 },  f_delete,    { .m = m_tosel        } },
 { .keyv.c = { 'X' },      { t_rw,  0,    0,   0 },  f_delete,    { .m = m_prevchar     } },
-/* TODO: won't work since Arg is a union */
-/*{ .keyv.c = { 'y' },      { t_rw,  0,    0,   0 },  f_pipero,    { .m = m_sentence, .v = TOCLIP } },*/
-{ .keyv.c = { 'y' },      { t_rw,  0,    0,   0 },  f_pipero,    { .v = TOCLIP         } },
 { .keyv.c = { ';' },      { 0,     0,    0,   0 },  f_spawn,     CMD_P                   },
 { .keyv.c = { ':' },      { 0,     0,    0,   0 },  f_spawn,     CMD_P                   },
 { .keyv.c = { '\'' },     { 0,     0,    0,   0 },  f_move,      { .m = m_tomark       } },
@@ -305,24 +264,3 @@ static const short bgcolors[LastBG] = {
 	[CurBG] = (HILIGHT_CURRENT ? COLOR_CYAN : -1),
 	[SelBG] = COLOR_YELLOW,
 };
-
-/* Helper config functions implementation */
-void /* Pipe selection from bol, then select last line only, special for autoindenting */
-f_pipeai(const Arg *arg) {
-	i_sortpos(&fsel, &fcur);
-	fsel.o = 0;
-	f_pipe(arg);
-	fsel = fcur;
-}
-
-void /* Pipe full lines including the selection */
-f_pipeline(const Arg *arg) {
-	f_extsel(&(const Arg){ .i = ExtLines });
-	f_pipe(arg);
-}
-
-void /* Pipe empty text */
-f_pipenull(const Arg *arg) {
-	fsel = fcur;
-	f_pipe(arg);
-}

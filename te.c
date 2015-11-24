@@ -92,10 +92,10 @@ enum { DefBG, CurBG, SelBG, LastBG, }; /* NOTE: BGs MUST have a matching FG */
 enum { ExtDefault, ExtWord, ExtLines, ExtAll, };
 
 /* To use in lastaction */
-enum { LastNone, LastDelete, LastInsert, LastPipe, LastPipeRO, };
+enum { LastNone, LastDelete, LastInsert, };
 
 /* Environment variables index */
-enum { EnvFind, EnvPipe, EnvLine, EnvOffset, EnvFile, EnvLast, };
+enum { EnvFind, EnvLine, EnvOffset, EnvFile, EnvLast, };
 
 enum {                      /* To use in statusflags */
 	S_Running = 1,          /* Keep the editor running, flip to stop */
@@ -125,7 +125,6 @@ enum {                 /* To use in Undo.flags */
 /* Constants */
 static const char *envs[EnvLast] = {
 	[EnvFind] = "TE_FIND",
-	[EnvPipe] = "TE_PIPE",
 	[EnvLine] = "TE_LINE",
 	[EnvOffset] = "TE_OFFSET",
 	[EnvFile] = "TE_FILE",
@@ -175,8 +174,6 @@ static void f_insert(const Arg *);
 static void f_line(const Arg *);
 static void f_mark(const Arg *);
 static void f_move(const Arg *);
-static void f_pipe(const Arg *);
-static void f_pipero(const Arg *);
 static void f_repeat(const Arg *);
 static void f_save(const Arg *);
 static void f_select(const Arg *);
@@ -202,7 +199,6 @@ static void          i_killundos(Undo **);
 static Line         *i_lineat(unsigned long);
 static unsigned long i_lineno(Line *);
 static void          i_multiply(void (*func)(const Arg * arg), const Arg arg);
-static void          i_pipetext(const char *);
 static void          i_readfile(char *);
 static void          i_resize(void);
 static void          i_setup(void);
@@ -422,29 +418,6 @@ f_move(const Arg * arg) {
 		fsel = fcur;
 }
 
-/* Pipe selection through arg->v external command. Your responsibility:
- * call only if t_rw() */
-void
-f_pipe(const Arg * arg) {
-	i_pipetext(arg->v);
-	statusflags |= S_Modified;
-	lastaction = LastPipe;
-}
-
-/* Pipe selection through arg->v external command but do not update text
- * on screen */
-void
-f_pipero(const Arg * arg) {
-	(void) arg;
-
-	long oldsf = statusflags;
-
-	statusflags |= S_Readonly;
-	i_pipetext(arg->v);
-	statusflags = oldsf;
-	lastaction = LastPipeRO;
-}
-
 /* Repeat the last action. Your responsibility: call only if t_rw() */
 void
 f_repeat(const Arg * arg) {
@@ -459,12 +432,6 @@ f_repeat(const Arg * arg) {
 	case LastInsert:
 		if(undos && undos->flags & UndoIns)
 			f_insert(&(const Arg) { .v = undos->str });
-		break;
-	case LastPipe:
-		f_pipe(&(const Arg) { .v = getenv(envs[EnvPipe]) });
-		break;
-	case LastPipeRO:
-		f_pipero(&(const Arg) { .v = getenv(envs[EnvPipe]) });
 		break;
 	}
 }
@@ -1043,152 +1010,6 @@ i_multiply(void (*func)(const Arg * arg), const Arg arg) {
 		multiply = 1;
 	} else
 		func(&arg);
-}
-
-/* Pipe text between fsel and fcur through cmd */
-void
-i_pipetext(const char *cmd) {
-	struct timeval tv;
-	int pin[2], pout[2], perr[2], nr = 1, nerr = 1, nw, written;
-	int iw = 0, closed = 0, exstatus;
-	char *buf = NULL, *ebuf = NULL, *s = NULL;
-	Filepos auxp;
-	fd_set fdI, fdO;
-	pid_t pid = -1;
-
-	if(!cmd || cmd[0] == '\0')
-		return;
-	setenv(envs[EnvPipe], cmd, 1);
-	if(pipe(pin) == -1)
-		return;
-	if(pipe(pout) == -1) {
-		close(pin[0]);
-		close(pin[1]);
-		return;
-	}
-	if(pipe(perr) == -1) {
-		close(pin[0]);
-		close(pin[1]);
-		close(pout[0]);
-		close(pout[1]);
-		return;
-	}
-
-	i_sortpos(&fsel, &fcur);
-
-	/* Things I will undo or free at the end of this function */
-	s = i_gettext(fsel, fcur);
-
-	if((pid = fork()) == 0) {
-		dup2(pin[0], 0);
-		dup2(pout[1], 1);
-		dup2(perr[1], 2);
-		close(pin[0]);
-		close(pin[1]);
-		close(pout[0]);
-		close(pout[1]);
-		close(perr[0]);
-		close(perr[1]);
-		/* I actually like it with sh so I can input pipes et al. */
-		execl("/bin/sh", "sh", "-c", cmd, NULL);
-		fprintf(stderr, "te: execl sh -c %s", cmd);
-		perror(" failed");
-		exit(EXIT_SUCCESS);
-	}
-
-	if(pid > 0) {
-		close(pin[0]);
-		close(pout[1]);
-		close(perr[1]);
-		if(t_rw()) {
-			i_addundo(FALSE, fsel, fcur, s);
-			if(undos)
-				undos->flags ^= RedoMore;
-			i_deltext(fsel, fcur);
-			fcur = fsel;
-		}
-		fcntl(pin[1], F_SETFL, O_NONBLOCK);
-		fcntl(pout[0], F_SETFL, O_NONBLOCK);
-		fcntl(perr[0], F_SETFL, O_NONBLOCK);
-		buf = ecalloc(1, BUFSIZ + 1);
-		ebuf = ecalloc(1, BUFSIZ + 1);
-		FD_ZERO(&fdO);
-		FD_SET(pin[1], &fdO);
-		FD_ZERO(&fdI);
-		FD_SET(pout[0], &fdI);
-		FD_SET(perr[0], &fdI);
-		tv.tv_sec = 5;
-		tv.tv_usec = 0;
-		nw = strlen(s);
-		while(select(FD_SETSIZE, &fdI, &fdO, NULL, &tv) > 0 &&
-		     (nw > 0 || nr > 0)) {
-			fflush(NULL);
-			if(FD_ISSET(pout[0], &fdI) && nr > 0) {
-				nr = read(pout[0], buf, BUFSIZ);
-				if(nr >= 0)
-					buf[nr] = '\0';
-				else
-					break; /* ...not seen it yet */
-				if(nr && t_rw()) {
-					auxp = i_addtext(buf, fcur);
-					i_addundo(TRUE, fcur, auxp, buf);
-					if(undos)
-						undos->flags ^= RedoMore | UndoMore;
-					fcur = auxp;
-				}
-			} else if(nr > 0) {
-				FD_SET(pout[0], &fdI);
-			} else {
-				FD_CLR(pout[0], &fdI);
-			}
-			if(FD_ISSET(perr[0], &fdI) && nerr > 0) {
-				/* Blatant TODO: take last line of stderr and copy as tmptitle */
-				ebuf[0] = '\0';
-				nerr = read(perr[0], ebuf, BUFSIZ);
-				if(nerr == -1)
-					tmptitle = "WARNING! command reported an error!!!";
-				if(nerr < 0)
-					break;
-			} else if(nerr > 0) {
-				FD_SET(perr[0], &fdI);
-			} else {
-				FD_CLR(perr[0], &fdI);
-			}
-			if(FD_ISSET(pin[1], &fdO) && nw > 0) {
-				written = write(pin[1], &(s[iw]),
-				    (nw < BUFSIZ ? nw : BUFSIZ));
-				if(written < 0)
-					break; /* broken pipe? */
-				iw += (nw < BUFSIZ ? nw : BUFSIZ);
-				nw -= written;
-			} else if(nw > 0) {
-				FD_SET(pin[1], &fdO);
-			} else {
-				if(!closed++)
-					close(pin[1]);
-				FD_ZERO(&fdO);
-			}
-		}
-		if(t_rw()) {
-			if(undos)
-				undos->flags ^= RedoMore;
-		}
-		free(buf);
-		free(ebuf);
-		if(!closed)
-			close(pin[1]);
-		waitpid(pid, &exstatus, 0); /* We don't want to close the pipe too soon */
-		close(pout[0]);
-		close(perr[0]);
-	} else {
-		close(pin[0]);
-		close(pin[1]);
-		close(pout[0]);
-		close(pout[1]);
-		close(perr[0]);
-		close(perr[1]);
-	}
-	free(s);
 }
 
 /* Read file content into the Line* structure */

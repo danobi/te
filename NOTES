@@ -3,5 +3,6 @@
 [x] rip out regex
 [x] rip out syntax colors
 [x] rip out mouse support
+[x] rip out piping feature
 [ ] see what else needs to be ripped out
 [ ] add in command support again
