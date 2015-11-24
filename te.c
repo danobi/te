@@ -1758,7 +1758,7 @@ main(int argc, char *argv[]) {
 		tabstop = atoi(EARGF(i_usage()));
 		break;
 	case 'v':
-		i_die("te-" VERSION ", © 2014 te engineers, see LICENSE for details\n");
+		i_die("te-" VERSION "\n");
 		break;
 	default:
 		i_usage();
