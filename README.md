@@ -15,7 +15,7 @@ In order to build `te` you need:
 Installation
 ============
 Edit `config.mk` to match your local setup (`te` is installed into the
-/usr/local namespace by default). Optionally, create a `config.h` file to 
+`/usr/local` namespace by default). Optionally, create a `config.h` file to 
 further configure the editor at compile time. An examples file is provided as 
 `config.def.h`.
 
@@ -32,11 +32,12 @@ Use the following syntax:
 	te [-r] [-t TABSTOP] [File]
 
 Where:
--a starts with autoindent
 
--r opens the file read-only
+- `-a` starts with autoindent
 
--t TABSTOP sets the tabstop for this instance of sandy
+- `-r` opens the file read-only
+
+- `-t TABSTOP` sets the tabstop for this instance of `te`
 
 
 Name
