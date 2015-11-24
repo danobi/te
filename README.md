@@ -1,7 +1,7 @@
 Background
 ============
-`te` is a fork of `sandy` made at suckless.
 `te` is primarily a hacking project.
+`te` is a fork of `sandy` made at suckless.
 
 Requirements
 ============
@@ -25,16 +25,12 @@ Running `te`
 ============
 Use the following syntax:
 
-	te [-r] [-S | -s SYNTAX] [-t TABSTOP] [File]
+	te [-r] [-t TABSTOP] [File]
 
 Where:
 -a starts with autoindent
 
 -r opens the file read-only
-
--S use no syntax colors at all.
-
--s SYNTAX  lets you specify the syntax colors for this file
 
 -t TABSTOP sets the tabstop for this instance of sandy
 
@@ -46,4 +42,4 @@ Name
 
 Known issues
 ============
-Mouse scroll down works if ncurses is compiled with `--enable-ext-mouse`.
+- Can't execute commands (via ':' operator) 
