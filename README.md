@@ -29,15 +29,19 @@ Running `te`
 ============
 Use the following syntax:
 
-	te [-r] [-t TABSTOP] [File]
+	te [-adrv] [-t TABSTOP] [file]
 
 Where:
 
 - `-a` starts with autoindent
 
+- `-d` dumps to stdout instead of saving to a file
+
 - `-r` opens the file read-only
 
 - `-t TABSTOP` sets the tabstop for this instance of `te`
+
+- `-v` prints version info
 
 
 Name
