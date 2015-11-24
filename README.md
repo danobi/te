@@ -5,7 +5,11 @@ Background
 
 Requirements
 ============
-In order to build `te` you need the ncurses header files.
+In order to build `te` you need: 
+
+- ncurses header files
+
+- an OS that has supports the SIGWINCH signal.
 
 
 Installation
