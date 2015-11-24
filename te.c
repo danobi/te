@@ -72,14 +72,6 @@ typedef struct {                    /** A keybinding */
 	const Arg arg;                  /* Argument to func() */
 } Key;
 
-typedef struct {                    /** A mouse click */
-	mmask_t mask;                   /* Mouse mask */
-	bool place[2];                  /* Place fcur / fsel at click place before testing */
-	bool(*test[3])(void);           /* Conditions to match, make sure the last one is 0x00 */
-	void (*func)(const Arg * arg);  /* Function to perform */
-	const Arg arg;                  /* Argument to func() */
-} Click;
-
 typedef struct Undo Undo;
 struct Undo {                   /** Undo information */
 	char flags;                 /* Flags: is insert/delete?, should concatenate with next undo/redo? */
@@ -163,7 +155,6 @@ static int      savestep = 0;                        /* Index to determine the n
 static long     statusflags = S_Running | S_Command; /* Status flags, very important, OR'd (see enums above) */
 static int      lastaction = LastNone;               /* The last action we took (see enums above) */
 static int      cols, lines;                         /* Ncurses: to use instead of COLS and LINES, wise */
-static mmask_t  defmmask = 0;                        /* Ncurses: mouse event mask */
 static void   (*verb)(const Arg * arg);              /* Verb of current sentence */
 static Arg      varg;                                /* Arguments of the verb (some will be overwritten by adjective) */
 static int      vi;                                  /* Helping var to store place of verb in key chain */
@@ -210,12 +201,10 @@ static char         *i_gettext(Filepos, Filepos);
 static void          i_killundos(Undo **);
 static Line         *i_lineat(unsigned long);
 static unsigned long i_lineno(Line *);
-static void          i_mouse(void);
 static void          i_multiply(void (*func)(const Arg * arg), const Arg arg);
 static void          i_pipetext(const char *);
 static void          i_readfile(char *);
 static void          i_resize(void);
-static Filepos       i_scrtofpos(int, int);
 static void          i_setup(void);
 static void          i_sigwinch(int);
 static void          i_sigcont(int);
@@ -929,12 +918,7 @@ i_edit(void) {
 		/* NCurses special chars are processed first to avoid UTF-8 collision */
 		if(ch >= KEY_MIN) {
 			/* These are not really chars */
-#if HANDLE_MOUSE
-			if(ch == KEY_MOUSE)
-				i_mouse();
-			else
-#endif /* HANDLE_MOUSE */
-				i_dokeys(curskeys, LEN(curskeys));
+			i_dokeys(curskeys, LEN(curskeys));
 			continue;
 		}
 
@@ -1041,38 +1025,6 @@ i_lineno(Line * l0) {
 		i++;
 	return i;
 }
-
-#if HANDLE_MOUSE
-/* Process mouse input */
-void
-i_mouse(void) {
-	unsigned int i;
-	MEVENT ev;
-	Filepos f;
-
-	if(getmouse(&ev) == ERR)
-		return;
-	if(!wmouse_trafo(textwin, &ev.y, &ev.x, FALSE))
-		return;
-
-	for(i = 0; i < LEN(clks); i++)
-		/* Warning! cursor placement code takes place BEFORE tests are taken
-		 * into account */
-		if(ev.bstate & clks[i].mask) {
-			/* While this allows to extend the selection, it may cause some confusion */
-			f = i_scrtofpos(ev.x, ev.y);
-			if(clks[i].place[0])
-				fcur = f;
-			if(clks[i].place[1])
-				fsel = f;
-			if(i_dotests(clks[i].test)) {
-				if(clks[i].func)
-					clks[i].func(&(clks[i].arg));
-				break;
-			}
-		}
-}
-#endif /* HANDLE_MOUSE */
 
 /* Handle multiplication */
 void
@@ -1315,37 +1267,6 @@ i_resize(void) {
 	statusflags |= S_DirtyScr;
 }
 
-#if HANDLE_MOUSE
-/* Return file position at screen coordinates x and y */
-Filepos
-i_scrtofpos(int x, int y) {
-	Filepos pos;
-	Line *l;
-	int irow, ixrow, ivchar, vlines = 1;
-
-	pos.l = lstline;
-	pos.o = pos.l->len;
-	for(l = scrline, irow = 0; l && irow < LINESABS; l = l->next, irow += vlines) {
-		vlines = VLINES(l);
-		for(ixrow = ivchar = 0; ixrow < vlines && (irow + ixrow) < LINESABS; ixrow++) {
-			if(irow + ixrow == y) {
-				pos.l = l;
-				pos.o = 0;
-				while(x > (ivchar % cols)
-				    || (ivchar / cols) < ixrow) {
-					ivchar += VLEN(l->c[pos.o], ivchar);
-					pos.o++;
-				}
-				if(pos.o > pos.l->len)
-					pos.o = pos.l->len;
-				break;
-			}
-		}
-	}
-	return pos;
-}
-#endif /* HANDLE_MOUSE */
-
 /* Setup everything */
 void
 i_setup(void) {
@@ -1441,8 +1362,6 @@ i_sortpos(Filepos * pos0, Filepos * pos1) {
 /* Initialize terminal */
 void
 i_termwininit(void) {
-	unsigned int i;
-
 	raw();
 	noecho();
 	nl();
@@ -1466,14 +1385,7 @@ i_termwininit(void) {
 	wtimeout(textwin, 0);
 	curs_set(1);
 	ESCDELAY = 20;
-	mouseinterval(20);
 	scrollok(textwin, FALSE);
-
-#if HANDLE_MOUSE
-	for(i = 0; i < LEN(clks); i++)
-		defmmask |= clks[i].mask;
-	mousemask(defmmask, NULL);
-#endif /* HANDLE_MOUSE */
 }
 
 /* Repaint screen. This is where everything happens. Apologies for the

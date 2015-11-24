@@ -4,7 +4,6 @@
 #define HILIGHT_CURRENT 1
 #define HILIGHT_SYNTAX  1
 #define SHOW_NONPRINT   0
-#define HANDLE_MOUSE    1
 #define VIM_BINDINGS    1
 
 /* Things unlikely to be changed, yet still in the config.h file */
@@ -251,24 +250,6 @@ static const Key commkeys[] = { /* Command mode keys here */
  */
 };
 #endif
-
-#if HANDLE_MOUSE
-/*Mouse clicks */
-static const Click clks[] = {
-/* mouse mask,           fcur / fsel,      tests,               func,       arg */
-{BUTTON1_CLICKED,        { TRUE , TRUE  }, { 0,     0,     0 }, 0,          { 0 } },
-{BUTTON3_CLICKED,        { TRUE , FALSE }, { t_sel, 0,     0 }, f_pipero,   { .v = TOSEL } },
-{BUTTON2_CLICKED,        { FALSE, FALSE }, { t_rw,  0,     0 }, f_pipenull, { .v = FROMSEL } },
-{BUTTON4_CLICKED,        { FALSE, FALSE }, { 0,     0,     0 }, f_move,     { .m = m_prevscr } },
-#ifdef BUTTON5_CLICKED
-{BUTTON5_CLICKED,        { FALSE, FALSE }, { 0,     0,     0 }, f_move,     { .m = m_nextscr } },
-#endif
-/* ^^ NCurses is a sad old library.... it does not include button 5 nor
- *    cursor movement in its mouse declaration by default */
-{BUTTON1_DOUBLE_CLICKED, { TRUE , TRUE  }, { 0,     0,     0 }, f_extsel,   { .i = ExtWord }  },
-{BUTTON1_TRIPLE_CLICKED, { TRUE , TRUE  }, { 0,     0,     0 }, f_extsel,   { .i = ExtLines }  },
-};
-#endif /* HANDLE_MOUSE */
 
 /* Colors */
 static const short  fgcolors[LastFG] = {
