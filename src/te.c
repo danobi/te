@@ -33,8 +33,8 @@
                       (ch > 0x5A && ch < 0x5F) || \
                       ch == 0x60 || \
                       ch > 0x7A)) /* A bit flawed because we assume multibyte UTF8 chars are alnum */
-#define VLEN(ch,col)  (ch=='\t' ? tabstop-(col%tabstop) : (ISCTRL(ch) ? 2: (ISFILL(ch) ? 0: 1)))
-#define VLINES(l)     (1+(l?l->vlen/cols:0))
+#define VLEN(ch,col)  (ch=='\t' ? tabstop-(col%tabstop) : (ISCTRL(ch) ? 2: (ISFILL(ch) ? 0: 1)))  /* Length "on screen" of character */
+#define VLINES(l)     (1+ (l ? l->vlen/cols: 0))
 #define FIXNEXT(pos)  while(isutf8 && ISFILL(pos.l->c[pos.o]) && ++pos.o < pos.l->len)
 #define FIXPREV(pos)  while(isutf8 && ISFILL(pos.l->c[pos.o]) && --pos.o > 0)
 #define LINESABS      (lines - (titlewin==NULL?0:1))
@@ -280,9 +280,12 @@ estrdup(const char *s) {
 	return p;
 }
 
-/* F_* FUNCTIONS
+/**************************************************** 
+ * f_* FUNCTIONS
+ *
  * Can be linked to an action or keybinding. Always return void and take
- * const Arg* */
+ * const Arg* 
+****************************************************/
 
 void
 f_adjective(const Arg * arg) {
@@ -560,9 +563,12 @@ f_undo(const Arg * arg) {
 	else
 		statusflags |= S_Modified;
 }
-
-/* I_* FUNCTIONS
-   Called internally from the program code */
+ 
+/**************************************************** 
+ * i_* FUNCTIONS
+ * 
+ * Internal functions used within main loop
+ ****************************************************/
 
 /* Add information to the last undo in the ring */
 void
@@ -692,7 +698,8 @@ i_die(const char *str) {
 	exit(EXIT_FAILURE);
 }
 
-/* The lines between l0 and l1 should be redrawn to the screen */
+/* The lines between l0 and l1 should be redrawn to the screen.
+ * So set the dirty flag to true for all lines between l0 and l1 */
 void
 i_dirtyrange(Line * l0, Line * l1) {
 	Line *l;
@@ -1162,7 +1169,7 @@ i_sigcont(int unused) {
 	i_resize();
 }
 
-/* Exchange pos0 and pos1 if not in order */
+/* Exchange file positions, pos0 and pos1, if not in order */
 void
 i_sortpos(Filepos * pos0, Filepos * pos1) {
 	Filepos p;
@@ -1448,8 +1455,12 @@ i_writefile(char *fname) {
 	return wok;
 }
 
-/* M_* FUNCTIONS
-	Represent a cursor motion, always take a Filepos and return an update Filepos */
+/****************************************************
+ * m_* FUNCTIONS
+ *
+ * Represent a cursor motion, always take a Filepos and return a new Filepos 
+ * based on motion that was applied
+ ****************************************************/
 
 /* Go to beginning of file */
 Filepos
@@ -1466,13 +1477,15 @@ m_bol(Filepos pos) {
 	return pos;
 }
 
-/* Go to smart beginning of line */
+/* Go to smart beginning of line, ie first non-whitespace character of line */
 Filepos
 m_smartbol(Filepos pos) {
 	Filepos vbol = pos;
 
 	vbol.o = 0;
 	while(ISBLANK(vbol.l->c[vbol.o]) && ++vbol.o < vbol.l->len) ;
+
+	// Do not move the cursor forward unless we're at the very beginning of the line
 	if(pos.o != 0 && pos.o <= vbol.o)
 		vbol.o = 0;
 	return vbol;
@@ -1591,7 +1604,7 @@ m_prevline(Filepos pos) {
 	return pos;
 }
 
-/* Advance as many lines as the screen size */
+/* Advance as many vertical lines as the screen size */
 Filepos
 m_nextscr(Filepos pos) {
 	int i;
@@ -1611,7 +1624,7 @@ m_parameter(Filepos pos) {
 	return pos;
 }
 
-/* Backup as many lines as the screen size */
+/* Backup as many vertical lines as the screen size */
 Filepos
 m_prevscr(Filepos pos) {
 	int i;
@@ -1664,81 +1677,89 @@ m_tosel(Filepos pos) {
 	return fsel;
 }
 
-/* T_* FUNCTIONS
- * Used to test for conditions, take no arguments and return bool. */
+/****************************************************
+ * t_* FUNCTIONS
+ * Used to test for conditions, take no arguments and return bool.
+ ****************************************************/
 
-/* TRUE if autoindent is on */
+/* Returns TRUE if autoindent is on */
 bool
 t_ai(void) {
 	return (statusflags & S_AutoIndent);
 }
 
-/* TRUE at the beginning of line */
+/* Returns TRUE if the cursor is at the beginning of the current line */
 bool
 t_bol(void) {
 	return (fcur.o == 0);
 }
 
-/* TRUE at end of line */
+/* Returns TRUE if cursor is at the end of the current line */
 bool
 t_eol(void) {
 	return (fcur.o == fcur.l->len);
 }
 
-/* TRUE if the file has been modified */
+/* Returns TRUE if the file has been modified */
 bool
 t_mod(void) {
 	return (statusflags & S_Modified);
 }
 
-/* TRUE if we are not in command mode */
+/* Returns TRUE if we are not in command mode, ergo insert mode */
 bool
 t_ins(void) {
 	return !(statusflags & S_Command);
 }
 
-/* TRUE if the file is writable */
+/* Returns TRUE if the file is writable */
 bool
 t_rw(void) {
 	return !(statusflags & S_Readonly);
 }
 
-/* TRUE if there is anything to redo */
+/* Returns TRUE if there is anything to redo */
 bool
 t_redo(void) {
 	return (redos != NULL);
 }
 
-/* TRUE if any text is selected */
+/* Returns TRUE if any text is selected */
 bool
 t_sel(void) {
 	return !(fcur.l == fsel.l && fcur.o == fsel.o);
 }
 
-/* TRUE if a sentence has started */
+/* Returns TRUE if a sentence has started */
 bool
 t_sent(void) {
 	return (statusflags & S_Sentence);
 }
 
-/* TRUE if there is anything to undo */
+/* Returns TRUE if there is anything to undo */
 bool
 t_undo(void) {
 	return (undos != NULL);
 }
 
-/* TRUE if we are in visual mode */
+/* Returns TRUE if we are in visual mode */
 bool
 t_vis(void) {
 	return (statusflags & S_Visual);
 }
 
-/* TRUE if we have warned the file is modified */
+/* 
+ * Returns TRUE if we have warned the file is modified 
+ *
+ * Usually we have warned that the file is modified when the user
+ * wants to quit
+ */
 bool
 t_warn(void) {
 	return (statusflags & S_Warned);
 }
 
+/* Main entry point */
 int
 main(int argc, char *argv[]) {
 	/* Use system locale, hopefully UTF-8 */
