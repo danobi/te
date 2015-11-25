@@ -1563,8 +1563,6 @@ m_nextline(Filepos pos) {
 		for(pos.line = pos.line->next, pos.offset = ichar = 0; ichar < ivchar && pos.offset < pos.line->len; pos.offset++)
 			ichar += VLEN(pos.line->content[pos.offset], ichar);
 		FIXNEXT(pos);
-	} else {
-		pos.offset = pos.line->len;
 	}
 	return pos;
 }
@@ -1582,8 +1580,6 @@ m_prevline(Filepos pos) {
 		for(pos.line = pos.line->prev, pos.offset = ichar = 0; ichar < ivchar && pos.offset < pos.line->len; pos.offset++)
 			ichar += VLEN(pos.line->content[pos.offset], ichar);
 		FIXNEXT(pos);
-	} else {
-		pos.offset = 0;
 	}
 	return pos;
 }
