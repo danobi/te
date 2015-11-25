@@ -159,7 +159,7 @@ static Arg      varg;                                /* Arguments of the verb (s
 static int      vi;                                  /* Helping var to store place of verb in key chain */
 static int      multiply = 1;                        /* Times to replay a command */
 
-/* allocate memory or die. */
+/* Allocate memory or die. */
 static void *ecalloc(size_t, size_t);
 static void *erealloc(void *, size_t);
 static char *estrdup(const char *);
