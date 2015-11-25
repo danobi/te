@@ -13,10 +13,10 @@
 	[x] f_* functions
 [x] rename functions and variables to be more descriptive
 	- many struct field names are meaningless
-[ ] figure out how undos work
-[ ] make `i_sortpos` function logic more clear
-[ ] make `m_nextline` not move to eol if at last line
-[ ] make `m_prevline` not move to bol if at first line
+[x] figure out how undos work
+[x] make `i_sortpos` function logic more clear
+[x] make `m_nextline` not move to eol if at last line
+[x] make `m_prevline` not move to bol if at first line
 [ ] merge `arg.h` into `te.c`
-[ ] remap all existing emacs keybindings to vim bindings
+[x] remap all existing emacs keybindings to vim bindings
 [ ] add in command support again
