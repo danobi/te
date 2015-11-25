@@ -121,7 +121,6 @@ static const Key stdkeys[] = {
 { .keyv.c = META('\\'),   { t_rw,  0,    0,   0 },  f_spawn,     SED                    },
 { .keyv.c = CONTROL(']'), { 0,     0,    0,   0 },  f_extsel,    { .i = ExtDefault    } },
 { .keyv.c = CONTROL('^'), { t_redo,t_rw, 0,   0 },  f_undo,      { .i = -1 } },
-{ .keyv.c = CONTROL('^'), { t_rw,  0,    0,   0 },  f_repeat,    { 0 } },
 { .keyv.c = META('5'),    { t_sel, t_rw, 0,   0 },  f_spawn,     REPLACE },
 { .keyv.c = CONTROL('?'), { t_rw,  0,    0,   0 },  f_delete,    { .m = m_prevchar    } },
 { .keyv.c = META(','),    { 0,     0,    0,   0 },  f_move,      { .m = m_bof         } },
@@ -191,7 +190,6 @@ static const Key commkeys[] = { /* Vim command mode keys here */
 { .keyv.c = { ';' },      { 0,     0,    0,   0 },  f_spawn,     CMD_P                   },
 { .keyv.c = { ':' },      { 0,     0,    0,   0 },  f_spawn,     CMD_P                   },
 { .keyv.c = { '\'' },     { 0,     0,    0,   0 },  f_move,      { .m = m_tomark       } },
-{ .keyv.c = { '.' },      { t_rw,  0,    0,   0 },  f_repeat,    { 0                   } },
 { .keyv.c = { '/' },      { 0,     0,    0,   0 },  f_spawn,     FIND                    },
 { .keyv.c = { ' ' },      { 0,     0,    0,   0 },  f_move,      { .m = m_nextchar     } },
 /* TODO: Keybindings left:

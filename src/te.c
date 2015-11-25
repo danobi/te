@@ -35,25 +35,25 @@
                       ch > 0x7A)) /* A bit flawed because we assume multibyte UTF8 chars are alnum */
 #define VLEN(ch,col)  (ch=='\t' ? tabstop-(col%tabstop) : (ISCTRL(ch) ? 2: (ISFILL(ch) ? 0: 1)))  /* Length "on screen" of character */
 #define VLINES(l)     (1+ (l ? l->vlen/cols: 0))
-#define FIXNEXT(pos)  while(isutf8 && ISFILL(pos.l->c[pos.o]) && ++pos.o < pos.l->len)
-#define FIXPREV(pos)  while(isutf8 && ISFILL(pos.l->c[pos.o]) && --pos.o > 0)
+#define FIXNEXT(pos)  while(isutf8 && ISFILL(pos.line->content[pos.offset]) && ++pos.offset < pos.line->len)
+#define FIXPREV(pos)  while(isutf8 && ISFILL(pos.line->content[pos.offset]) && --pos.offset > 0)
 #define LINESABS      (lines - (titlewin==NULL?0:1))
 
 /* Typedefs */
 typedef struct Line Line;
-struct Line {    /** The internal representation of a line of text */
-	char *c;     /* Line content */
-	size_t len;  /* Line byte length */
-	size_t vlen; /* On-screen line-length */
-	size_t mul;  /* How many times LINSIZ is c malloc'd to */
-	bool dirty;  /* Should I repaint on screen? */
-	Line *next;  /* Next line, NULL if I'm last */
-	Line *prev;  /* Previous line, NULL if I'm first */
+struct Line {          /** The internal representation of a line of text */
+	char *content;     /* Line content */
+	size_t len;        /* Line byte length */
+	size_t vlen;       /* On-screen line-length */
+	size_t mul;        /* How many times LINSIZ is `content` malloc'd to */
+	bool dirty;        /* Should I repaint on screen? */
+	Line *next;        /* Next line, NULL if I'm last */
+	Line *prev;        /* Previous line, NULL if I'm first */
 };
 
 typedef struct {  /** A position in the file */
-	Line *l;  /* Line */
-	size_t o; /* Offset inside the line */
+	Line *line;    /* Line */
+	size_t offset; /* Offset inside the line */
 } Filepos;
 
 typedef union { /** An argument to a f_* function, generic */
@@ -174,7 +174,6 @@ static void f_insert(const Arg *);
 static void f_line(const Arg *);
 static void f_mark(const Arg *);
 static void f_move(const Arg *);
-static void f_repeat(const Arg *);
 static void f_save(const Arg *);
 static void f_select(const Arg *);
 static void f_spawn(const Arg *);
@@ -309,7 +308,7 @@ f_center(const Arg * arg) {
 
 	int i = LINESABS / 2;
 
-	scrline = fcur.l;
+	scrline = fcur.line;
 	while((i -= VLINES(scrline)) > 0 && scrline->prev)
 		scrline = scrline->prev;
 	i_resize();
@@ -332,8 +331,8 @@ f_delete(const Arg * arg) {
 		fcur = pos0;
 	else
 		fcur = fsel = pos0;
-	if(fsel.o > fsel.l->len)
-		fsel.o = fsel.l->len;
+	if(fsel.offset > fsel.line->len)
+		fsel.offset = fsel.line->len;
 	statusflags |= S_Modified;
 	lastaction = LastDelete;
 }
@@ -345,25 +344,25 @@ f_extsel(const Arg * arg) {
 	i_sortpos(&fsel, &fcur);
 	switch (arg->i) {
 	case ExtWord:
-		if(fsel.o > 0 && !ISWORDBRK(fsel.l->c[fsel.o - 1]))
+		if(fsel.offset > 0 && !ISWORDBRK(fsel.line->content[fsel.offset - 1]))
 			fsel = m_prevword(fsel);
-		if(!ISWORDBRK(fcur.l->c[fcur.o]))
+		if(!ISWORDBRK(fcur.line->content[fcur.offset]))
 			fcur = m_nextword(fcur);
 		break;
 	case ExtLines:
-		fsel.o = 0;
-		fcur.o = fcur.l->len;
+		fsel.offset = 0;
+		fcur.offset = fcur.line->len;
 		break;
 	case ExtAll:
-		fsel.l = fstline;
-		fcur.l = lstline;
+		fsel.line = fstline;
+		fcur.line = lstline;
 		f_extsel(&(const Arg) { .i = ExtLines });
 		break;
 	case ExtDefault:
 	default:
-		if(fsel.o == 0 && fcur.o == fcur.l->len)
+		if(fsel.offset == 0 && fcur.offset == fcur.line->len)
 			f_extsel(&(const Arg) { .i = ExtAll });
-		else if(t_sel() || ISWORDBRK(fcur.l->c[fcur.o]))
+		else if(t_sel() || ISWORDBRK(fcur.line->content[fcur.offset]))
 			f_extsel(&(const Arg) { .i = ExtLines });
 		else
 			f_extsel(&(const Arg) { .i = ExtWord });
@@ -378,12 +377,12 @@ f_insert(const Arg * arg) {
 	newcur = i_addtext((char *) arg->v, fcur);
 
 	if((statusflags & S_GroupUndo) && undos && (undos->flags & UndoIns) &&
-	    fcur.o == undos->endo && undos->endl == i_lineno(fcur.l) &&
+	    fcur.offset == undos->endo && undos->endl == i_lineno(fcur.line) &&
 	    ((char *) arg->v)[0] != '\n') {
 		i_addtoundo(newcur, arg->v);
 	} else {
 		i_addundo(TRUE, fcur, newcur, (char *) arg->v);
-		if(fcur.l != newcur.l)
+		if(fcur.line != newcur.line)
 			fsel = newcur;
 	}
 	fcur = fsel = newcur;
@@ -399,9 +398,9 @@ f_line(const Arg * arg) {
 	l = atoi(arg->v);
 	if(!l)
 		l = 1;
-	fcur.l = i_lineat(l);
-	if(fcur.o > fcur.l->len)
-		fcur.o = fcur.l->len;
+	fcur.line = i_lineat(l);
+	if(fcur.offset > fcur.line->len)
+		fcur.offset = fcur.line->len;
 	FIXNEXT(fcur);
 }
 
@@ -419,24 +418,6 @@ f_move(const Arg * arg) {
 	fcur = arg->m(fcur);
 	if(!t_vis())
 		fsel = fcur;
-}
-
-/* Repeat the last action. Your responsibility: call only if t_rw() */
-void
-f_repeat(const Arg * arg) {
-	(void) arg;
-
-	i_sortpos(&fsel, &fcur);
-	switch (lastaction) {
-	case LastDelete:
-		if(t_sel())
-			f_delete(&(const Arg) { .m = m_tosel });
-		break;
-	case LastInsert:
-		if(undos && undos->flags & UndoIns)
-			f_insert(&(const Arg) { .v = undos->str });
-		break;
-	}
 }
 
 /* Save file with arg->v filename, same if NULL. Your responsibility: call
@@ -531,12 +512,12 @@ f_undo(const Arg * arg) {
 	int n;
 
 	u = (isredo ? redos : undos);
-	fsel.o = u->starto, fsel.l = i_lineat(u->startl);
+	fsel.offset = u->starto, fsel.line = i_lineat(u->startl);
 	fcur = fsel;
 
 	while(u) {
-		start.o = u->starto, start.l = i_lineat(u->startl);
-		end.o = u->endo, end.l = i_lineat(u->endl);
+		start.offset = u->starto, start.line = i_lineat(u->startl);
+		end.offset = u->endo, end.line = i_lineat(u->endl);
 
 		if(isredo ^ (u->flags & UndoIns)) {
 			i_sortpos(&start, &end);
@@ -579,8 +560,8 @@ i_addtoundo(Filepos newend, const char *s) {
 		return;
 	oldsiz = strlen(undos->str);
 	newsiz = strlen(s);
-	undos->endl = i_lineno(newend.l);
-	undos->endo = newend.o;
+	undos->endl = i_lineno(newend.line);
+	undos->endo = newend.offset;
 
 	undos->str = (char *) erealloc(undos->str, 1 + oldsiz + newsiz);
 	strncat(undos->str, s, newsiz);
@@ -594,7 +575,7 @@ i_addundo(bool ins, Filepos start, Filepos end, char *s) {
 	if(!s || !*s)
 		return;
 	if(undos && (statusflags & S_GroupUndo)) {
-		end.l = i_lineat((undos->endl - undos->startl) + i_lineno(end.l));
+		end.line = i_lineat((undos->endl - undos->startl) + i_lineno(end.line));
 		i_addtoundo(end, s);
 		return;
 	}
@@ -605,10 +586,10 @@ i_addundo(bool ins, Filepos start, Filepos end, char *s) {
 	u = (Undo *) ecalloc(1, sizeof(Undo));
 
 	u->flags = (ins ? UndoIns : 0);
-	u->startl = i_lineno(start.l);
-	u->endl = i_lineno(end.l);
-	u->starto = start.o;
-	u->endo = end.o;
+	u->startl = i_lineno(start.line);
+	u->endl = i_lineno(end.line);
+	u->starto = start.offset;
+	u->endo = end.offset;
 	u->str = estrdup(s);
 	u->prev = undos;
 	undos = u;
@@ -617,8 +598,8 @@ i_addundo(bool ins, Filepos start, Filepos end, char *s) {
 /* Add text at pos, return the position after the inserted text */
 Filepos
 i_addtext(char *buf, Filepos pos) {
-	Line *l = pos.l, *lnew = NULL;
-	size_t o = pos.o, vlines, i = 0, il = 0;
+	Line *l = pos.line, *lnew = NULL;
+	size_t o = pos.offset, vlines, i = 0, il = 0;
 	Filepos f;
 	char c;
 
@@ -627,7 +608,7 @@ i_addtext(char *buf, Filepos pos) {
 		/* newline / line feed */
 		if(c == '\n' || c == '\r') {
 			lnew = (Line *)ecalloc(1, sizeof(Line));
-			lnew->c = ecalloc(1, LINSIZ);
+			lnew->content = ecalloc(1, LINSIZ);
 			lnew->dirty = l->dirty = TRUE;
 			lnew->len = lnew->vlen = 0;
 			lnew->mul = 1;
@@ -641,31 +622,31 @@ i_addtext(char *buf, Filepos pos) {
 			l = lnew;
 			/* \n in the middle of a line */
 			if(o + il < l->prev->len) {
-				f.l = l;
-				f.o = 0;
-				i_addtext(&(l->prev->c[o + il]), f);
+				f.line = l;
+				f.offset = 0;
+				i_addtext(&(l->prev->content[o + il]), f);
 				l->prev->len = o + il;
-				l->prev->c[o + il] = '\0';
+				l->prev->content[o + il] = '\0';
 			}
 			i_calcvlen(l->prev);
 			o = il = 0;
 		} else {
 			/* Regular char */
 			if(2 + (l->len) >= LINSIZ * (l->mul))
-				l->c = (char *) erealloc(l->c, LINSIZ * (++(l->mul)));
-			memmove(l->c + il + o + 1, l->c + il + o,
+				l->content = (char *) erealloc(l->content, LINSIZ * (++(l->mul)));
+			memmove(l->content + il + o + 1, l->content + il + o,
 			    (1 + l->len - (il + o)));
-			l->c[il + o] = c;
+			l->content[il + o] = c;
 			l->dirty = TRUE;
 			if(il + o >= (l->len)++)
-				l->c[il + o + 1] = '\0';
+				l->content[il + o + 1] = '\0';
 			il++;
 		}
 	}
 	i_calcvlen(l);
-	f.l = l;
-	f.o = il + o;
-	if(lnew != NULL || vlines != VLINES(pos.l))
+	f.line = l;
+	f.offset = il + o;
+	if(lnew != NULL || vlines != VLINES(pos.line))
 		statusflags |= S_DirtyDown;
 	return f;
 }
@@ -677,7 +658,7 @@ i_calcvlen(Line * l) {
 
 	l->vlen = 0;
 	for(i = 0; i < l->len; i++)
-		l->vlen += VLEN(l->c[i], l->vlen);
+		l->vlen += VLEN(l->content[i], l->vlen);
 }
 
 /* Cleanup and exit */
@@ -726,40 +707,40 @@ i_deltext(Filepos pos0, Filepos pos1) {
 	size_t vlines = 1;
 	bool integrity = TRUE;
 
-	if(pos0.l == fsel.l)
-		integrity = (fsel.o <= pos0.o || (pos0.l == pos1.l
-			&& fsel.o > pos1.o));
-	if(pos0.l == pos1.l) {
-		vlines = VLINES(pos0.l);
-		memmove(pos0.l->c + pos0.o, pos0.l->c + pos1.o,
-		    (pos0.l->len - pos1.o));
-		pos0.l->dirty = TRUE;
-		pos0.l->len -= (pos1.o - pos0.o);
-		pos0.l->c[pos0.l->len] = '\0';
-		i_calcvlen(pos0.l);
+	if(pos0.line == fsel.line)
+		integrity = (fsel.offset <= pos0.offset || (pos0.line == pos1.line
+			&& fsel.offset > pos1.offset));
+	if(pos0.line == pos1.line) {
+		vlines = VLINES(pos0.line);
+		memmove(pos0.line->content + pos0.offset, pos0.line->content + pos1.offset,
+		    (pos0.line->len - pos1.offset));
+		pos0.line->dirty = TRUE;
+		pos0.line->len -= (pos1.offset - pos0.offset);
+		pos0.line->content[pos0.line->len] = '\0';
+		i_calcvlen(pos0.line);
 	} else {
-		pos0.l->len = pos0.o;
-		pos0.l->c[pos0.l->len] = '\0';
-		pos0.l->dirty = TRUE; /* <<-- glitch in screen updates! */
+		pos0.line->len = pos0.offset;
+		pos0.line->content[pos0.line->len] = '\0';
+		pos0.line->dirty = TRUE; /* <<-- glitch in screen updates! */
 		/* i_calcvlen is unneeded here, because we call i_addtext later */
-		while(pos1.l != ldel) {
-			if(pos1.l == pos0.l->next)
-				i_addtext(&(pos0.l->next->c[pos1.o]), pos0);
-			if(pos0.l->next->next)
-				pos0.l->next->next->prev = pos0.l;
-			ldel = pos0.l->next;
-			pos0.l->next = pos0.l->next->next;
+		while(pos1.line != ldel) {
+			if(pos1.line == pos0.line->next)
+				i_addtext(&(pos0.line->next->content[pos1.offset]), pos0);
+			if(pos0.line->next->next)
+				pos0.line->next->next->prev = pos0.line;
+			ldel = pos0.line->next;
+			pos0.line->next = pos0.line->next->next;
 			if(scrline == ldel)
 				scrline = ldel->prev;
 			if(lstline == ldel)
 				lstline = ldel->prev;
-			if(fsel.l == ldel)
+			if(fsel.line == ldel)
 				integrity = FALSE;
-			free(ldel->c);
+			free(ldel->content);
 			free(ldel);
 		}
 	}
-	if(ldel != NULL || vlines != VLINES(pos0.l))
+	if(ldel != NULL || vlines != VLINES(pos0.line))
 		statusflags |= S_DirtyDown;
 	return integrity;
 }
@@ -776,17 +757,20 @@ i_dotests(bool(*const a[])(void)) {
 	return TRUE;
 }
 
+/* Execute actions associated with the current key stored in `c` */
 void
 i_dokeys(const Key bindings[], unsigned int length_bindings) {
 	unsigned int index, i, j;
 
 	for(index = 0; index < length_bindings; index++) {
+		/* First try to match the currently pressed key with `bindings` */
 		if(((bindings[index].keyv.c &&
 		     memcmp(c, bindings[index].keyv.c,
 		            sizeof bindings[index].keyv.c) == 0) ||
 		    (bindings[index].keyv.i && ch == bindings[index].keyv.i)) &&
 		     i_dotests(bindings[index].test)) {
 
+			/* We only want to group undo text entered in insert mode */
 			if(bindings[index].func != f_insert)
 				statusflags &= ~(S_GroupUndo);
 
@@ -854,23 +838,23 @@ i_edit(void) {
 	fd_set fds;
 	Filepos oldsel, oldcur;
 
-	oldsel.l = oldcur.l = fstline;
-	oldsel.o = oldcur.o = 0;
+	oldsel.line = oldcur.line = fstline;
+	oldsel.offset = oldcur.offset = 0;
 
 	while(statusflags & S_Running) {
-		if(fsel.l != oldsel.l)
-			i_dirtyrange(oldsel.l, fsel.l);
-		else if(fsel.o != oldsel.o)
-			fsel.l->dirty = TRUE;
-		if(fcur.l != oldcur.l)
-			i_dirtyrange(oldcur.l, fcur.l);
-		else if(fcur.o != oldcur.o)
-			fcur.l->dirty = TRUE;
+		if(fsel.line != oldsel.line)
+			i_dirtyrange(oldsel.line, fsel.line);
+		else if(fsel.offset != oldsel.offset)
+			fsel.line->dirty = TRUE;
+		if(fcur.line != oldcur.line)
+			i_dirtyrange(oldcur.line, fcur.line);
+		else if(fcur.offset != oldcur.offset)
+			fcur.line->dirty = TRUE;
 		oldsel = fsel, oldcur = fcur;
 		i_update();
 
 #ifdef HOOK_SELECT_ALL
-		if(fsel.l != fcur.l || fsel.o != fcur.o)
+		if(fsel.line != fcur.line || fsel.offset != fcur.offset)
 			HOOK_SELECT_ALL;
 #endif
 		FD_ZERO(&fds);
@@ -951,20 +935,20 @@ i_gettext(Filepos pos0, Filepos pos1) {
 	unsigned long long i = 1;
 	char *buf;
 
-	for(l = pos0.l; l != pos1.l->next; l = l->next)
-		i += 1 + (l == pos1.l ? pos1.o : l->len) - (l == pos0.l ? pos0.o : 0);
+	for(l = pos0.line; l != pos1.line->next; l = l->next)
+		i += 1 + (l == pos1.line ? pos1.offset : l->len) - (l == pos0.line ? pos0.offset : 0);
 	buf = ecalloc(1, i);
-	for(l = pos0.l, i = 0; l != pos1.l->next; l = l->next) {
-		memcpy(buf + i, l->c + (l == pos0.l ? pos0.o : 0),
-		    (l == pos1.l ? pos1.o : l->len) - (l == pos0.l ? pos0.o : 0));
-		i += (l == pos1.l ? pos1.o : l->len) - (l == pos0.l ? pos0.o : 0);
-		if(l != pos1.l)
+	for(l = pos0.line, i = 0; l != pos1.line->next; l = l->next) {
+		memcpy(buf + i, l->content + (l == pos0.line ? pos0.offset : 0),
+		    (l == pos1.line ? pos1.offset : l->len) - (l == pos0.line ? pos0.offset : 0));
+		i += (l == pos1.line ? pos1.offset : l->len) - (l == pos0.line ? pos0.offset : 0);
+		if(l != pos1.line)
 			buf[i++] = '\n';
 	}
 	return buf;
 }
 
-/* Kill the content of the &list undo/redo ring */
+/* Kill (ie free) the content of the &list undo/redo ring */
 void
 i_killundos(Undo ** list) {
 	Undo *u;
@@ -1063,8 +1047,8 @@ i_readfile(char *fname) {
 		reset_prog_mode();
 	}
 	free(buf);
-	fcur.l = fstline;
-	fcur.o = 0;
+	fcur.line = fstline;
+	fcur.offset = 0;
 	fsel = fcur;
 	f_line(&(const Arg) { .v = linestr });
 }
@@ -1142,14 +1126,14 @@ i_setup(void) {
 
 	/* Init line structure */
 	l = (Line *) ecalloc(1, sizeof(Line));
-	l->c = ecalloc(1, LINSIZ);
+	l->content = ecalloc(1, LINSIZ);
 	l->dirty = FALSE;
 	l->len = l->vlen = 0;
 	l->mul = 1;
 	l->next = NULL;
 	l->prev = NULL;
-	fstline = lstline = scrline = fcur.l = l;
-	fcur.o = 0;
+	fstline = lstline = scrline = fcur.line = l;
+	fcur.offset = 0;
 	fsel = fcur;
 }
 
@@ -1174,11 +1158,11 @@ void
 i_sortpos(Filepos * pos0, Filepos * pos1) {
 	Filepos p;
 
-	for(p.l = fstline; p.l; p.l = p.l->next) {
-		if(p.l == pos0->l || p.l == pos1->l) {
-			if((p.l == pos0->l && (p.l == pos1->l
-				    && pos1->o < pos0->o)) || (p.l == pos1->l
-				&& p.l != pos0->l))
+	for(p.line = fstline; p.line; p.line = p.line->next) {
+		if(p.line == pos0->line || p.line == pos1->line) {
+			if((p.line == pos0->line && (p.line == pos1->line
+				    && pos1->offset < pos0->offset)) || (p.line == pos1->line
+				&& p.line != pos0->line))
 				p = *pos0, *pos0 = *pos1, *pos1 = p;
 			break;
 		}
@@ -1221,7 +1205,7 @@ i_update(void) {
 	int iline, irow, ixrow, ivchar, i, ifg, ibg, vlines;
 	int cursor_r = 0, cursor_c = 0;
 	int lines3; /* How many lines fit on screen */
-	long int nscr, ncur = 1, nlst = 1; /* Line number for scrline, fcur.l and lstline */
+	long int nscr, ncur = 1, nlst = 1; /* Line number for scrline, fcur.line and lstline */
 	size_t ichar;
 	bool selection;
 	Line *l;
@@ -1235,7 +1219,7 @@ i_update(void) {
 	scrollok(textwin, TRUE); /* Here I scroll */
 	for(selection = FALSE, l = fstline, iline = 1;
 	    l && scrline->prev && l != scrline; iline++, l = l->next) {
-		if(l == fcur.l) { /* Can't have fcur.l before scrline, move scrline up */
+		if(l == fcur.line) { /* Can't have fcur.line before scrline, move scrline up */
 			i = 0;
 			while(l != scrline) {
 				if(VLINES(scrline) > 1) {
@@ -1252,20 +1236,20 @@ i_update(void) {
 				wscrl(textwin, -i);
 			break;
 		}
-		if(l == fsel.l) /* Selection starts before screen view */
+		if(l == fsel.line) /* Selection starts before screen view */
 			selection = !selection;
 	}
 	for(i = irow = 0, l = scrline; l; l = l->next, irow += vlines) {
 		if((vlines = VLINES(l)) > 1)
-			statusflags |= S_DirtyDown; /* if any line before fcur.l has vlines>1 */
-		if(fcur.l == l) {
+			statusflags |= S_DirtyDown; /* if any line before fcur.line has vlines>1 */
+		if(fcur.line == l) {
 			if(irow + vlines > 2 * LINESABS)
 				statusflags |= S_DirtyScr;
-			/* Can't have fcur.l after screen end, move scrline down */
+			/* Can't have fcur.line after screen end, move scrline down */
 			while(irow + vlines > LINESABS && scrline->next) {
 				irow -= VLINES(scrline);
 				i += VLINES(scrline);
-				if(scrline == fsel.l)
+				if(scrline == fsel.line)
 					selection = !selection; /* We just scrolled past the selection point */
 				scrline = scrline->next;
 				iline++;
@@ -1282,13 +1266,13 @@ i_update(void) {
 	for(irow = lines3 = 0, l = scrline; irow < LINESABS;
 	    irow += vlines, lines3++, iline++) {
 		vlines = VLINES(l);
-		if(fcur.l == l) {
+		if(fcur.line == l) {
 			ncur = iline;
 			/* Update screen cursor position */
 			cursor_c = 0;
 			cursor_r = irow;
-			for(ichar = 0; ichar < fcur.o; ichar++)
-				cursor_c += VLEN(fcur.l->c[ichar], cursor_c);
+			for(ichar = 0; ichar < fcur.offset; ichar++)
+				cursor_c += VLEN(fcur.line->content[ichar], cursor_c);
 			while(cursor_c >= cols) {
 				cursor_c -= cols;
 				cursor_r++;
@@ -1302,50 +1286,50 @@ i_update(void) {
 			for(ixrow = ichar = ivchar = 0; ixrow < vlines && (irow + ixrow) < LINESABS; ixrow++) {
 				wmove(textwin, (irow + ixrow), (ivchar % cols));
 				while(ivchar < (1 + ixrow) * cols) {
-					if(fcur.l == l && ichar == fcur.o)
+					if(fcur.line == l && ichar == fcur.offset)
 						selection = !selection;
-					if(fsel.l == l && ichar == fsel.o)
+					if(fsel.line == l && ichar == fsel.offset)
 						selection = !selection;
 					ifg = DefFG, ibg = DefBG;
-					if(fcur.l == l)
+					if(fcur.line == l)
 						ifg = CurFG, ibg = CurBG;
 					if(selection)
 						ifg = SelFG, ibg = SelBG;
 					wattrset(textwin, textattrs[ifg][ibg]);
 					if(l && ichar < l->len) {
 						/* Tab nightmare */
-						if(l->c[ichar] == '\t') {
+						if(l->content[ichar] == '\t') {
 							wattrset(textwin, textattrs[SpcFG][ibg]);
 							for(i = 0; i < VLEN('\t', ivchar); i++)
 								waddstr(textwin, ((i == 0 && isutf8) ? tabstr : " "));
-						} else if(l->c[ichar] == ' ') { /* Space */
+						} else if(l->content[ichar] == ' ') { /* Space */
 							wattrset(textwin, textattrs[SpcFG][ibg]);
 							waddstr(textwin, (isutf8 ? spcstr : " "));
-						} else if(ISCTRL(l->c[ichar])) {
+						} else if(ISCTRL(l->content[ichar])) {
 							/* Add Ctrl-char as string to avoid problems at right screen end */
 							wattrset(textwin, textattrs[CtrlFG][ibg]);
-							waddstr(textwin, unctrl(l->c[ichar]));
-						} else if(isutf8 && !ISASCII(l->c[ichar])) {
+							waddstr(textwin, unctrl(l->content[ichar]));
+						} else if(isutf8 && !ISASCII(l->content[ichar])) {
 							/* Begin multi-byte char, dangerous at right screen end */
-							for(i = 0; i < UTF8LEN(l->c[ichar]); i++) {
+							for(i = 0; i < UTF8LEN(l->content[ichar]); i++) {
 								if(ichar + i < l->len)
-									c[i] = l->c[ichar + i];
+									c[i] = l->content[ichar + i];
 								else
 									c[i] = '\0';
 							}
 							c[i] = '\0'; /* WARNING: we use i later... */
 							waddstr(textwin, c);
 						} else {
-							waddch(textwin, l->c[ichar]);
+							waddch(textwin, l->content[ichar]);
 						}
-						ivchar += VLEN(l->c[ichar], ivchar);
-						if(isutf8 && !ISASCII(l->c[ichar]) && i)
+						ivchar += VLEN(l->content[ichar], ivchar);
+						if(isutf8 && !ISASCII(l->content[ichar]) && i)
 							ichar += i; /* ...here */
 						else
 							ichar++;
 					} else {
 						ifg = DefFG, ibg = DefBG;
-						if(fcur.l == l) {
+						if(fcur.line == l) {
 							ifg = CurFG;
 							ibg = CurBG;
 						}
@@ -1360,7 +1344,7 @@ i_update(void) {
 					}
 				}
 			}
-		} else if(l == fsel.l || l == fcur.l) {
+		} else if(l == fsel.line || l == fcur.line) {
 			selection = !selection;
 		}
 		if(l)
@@ -1368,7 +1352,7 @@ i_update(void) {
 	}
 
 	/* Calculate nlst */
-	for(iline = ncur, l = fcur.l; l; l = l->next, iline++) {
+	for(iline = ncur, l = fcur.line; l; l = l->next, iline++) {
 		if(l == lstline)
 			nlst = iline;
 	}
@@ -1379,7 +1363,7 @@ i_update(void) {
 	/* Update env */
 	snprintf(buf, 16, "%ld", ncur);
 	setenv(envs[EnvLine], buf, 1);
-	snprintf(buf, 16, "%d", (int) fcur.o);
+	snprintf(buf, 16, "%d", (int) fcur.offset);
 	setenv(envs[EnvOffset], buf, 1);
 
 	/* Update title */
@@ -1394,7 +1378,7 @@ i_update(void) {
 		    (statusflags & S_DumpStdout ? "<Stdout>" : (filename == NULL ? "<No file>" : filename)),
 		    (t_mod()? "[+]" : ""), (!t_rw()? "[RO]" : ""),
 		    (statusflags & S_AutoIndent ? "[ai]" : ""), ncur,
-		    (int) fcur.o,
+		    (int) fcur.offset,
 		    (scrline == fstline ? (nlst <
 			    lines3 ? "All" : "Top") : (nlst - nscr <
 			    lines3 ? "Bot" : buf)
@@ -1446,7 +1430,7 @@ i_writefile(char *fname) {
 	}
 
 	for(l = fstline; wok && l; l = l->next) {
-		if(write(fd, l->c, l->len) == -1 ||
+		if(write(fd, l->content, l->len) == -1 ||
 		    (l->next && write(fd, "\n", 1) == -1))
 			wok = FALSE;
 	}
@@ -1465,15 +1449,15 @@ i_writefile(char *fname) {
 /* Go to beginning of file */
 Filepos
 m_bof(Filepos pos) {
-	pos.l = fstline;
-	pos.o = 0;
+	pos.line = fstline;
+	pos.offset = 0;
 	return pos;
 }
 
 /* Go to beginning of line */
 Filepos
 m_bol(Filepos pos) {
-	pos.o = 0;
+	pos.offset = 0;
 	return pos;
 }
 
@@ -1482,39 +1466,39 @@ Filepos
 m_smartbol(Filepos pos) {
 	Filepos vbol = pos;
 
-	vbol.o = 0;
-	while(ISBLANK(vbol.l->c[vbol.o]) && ++vbol.o < vbol.l->len) ;
+	vbol.offset = 0;
+	while(ISBLANK(vbol.line->content[vbol.offset]) && ++vbol.offset < vbol.line->len) ;
 
 	// Do not move the cursor forward unless we're at the very beginning of the line
-	if(pos.o != 0 && pos.o <= vbol.o)
-		vbol.o = 0;
+	if(pos.offset != 0 && pos.offset <= vbol.offset)
+		vbol.offset = 0;
 	return vbol;
 }
 
 /* Go to end of file */
 Filepos
 m_eof(Filepos pos) {
-	pos.l = lstline;
-	pos.o = pos.l->len;
+	pos.line = lstline;
+	pos.offset = pos.line->len;
 	return pos;
 }
 
 /* Go to end of line */
 Filepos
 m_eol(Filepos pos) {
-	pos.o = pos.l->len;
+	pos.offset = pos.line->len;
 	return pos;
 }
 
 /* Advance one char, next line if needed */
 Filepos
 m_nextchar(Filepos pos) {
-	if(pos.o < pos.l->len) {
-		pos.o++;
+	if(pos.offset < pos.line->len) {
+		pos.offset++;
 		FIXNEXT(pos);
-	} else if(pos.l->next) {
-		pos.l = pos.l->next;
-		pos.o = 0;
+	} else if(pos.line->next) {
+		pos.line = pos.line->next;
+		pos.offset = 0;
 	}
 	return pos;
 }
@@ -1522,12 +1506,12 @@ m_nextchar(Filepos pos) {
 /* Backup one char, previous line if needed */
 Filepos
 m_prevchar(Filepos pos) {
-	if(pos.o > 0) {
-		pos.o--;
+	if(pos.offset > 0) {
+		pos.offset--;
 		FIXPREV(pos);
-	} else if(pos.l->prev) {
-		pos.l = pos.l->prev;
-		pos.o = pos.l->len;
+	} else if(pos.line->prev) {
+		pos.line = pos.line->prev;
+		pos.offset = pos.line->len;
 	}
 	return pos;
 }
@@ -1537,13 +1521,13 @@ Filepos
 m_nextword(Filepos pos) {
 	Filepos p0 = m_nextchar(pos);
 
-	while((p0.o != pos.o || p0.l != pos.l) && ISWORDBRK(pos.l->c[pos.o]))
+	while((p0.offset != pos.offset || p0.line != pos.line) && ISWORDBRK(pos.line->content[pos.offset]))
 		pos = p0, p0 = m_nextchar(pos);	/* Find the current or next word */
 
 	do {
 		/* Move to word end */
 		p0 = pos, pos = m_nextchar(pos);
-	} while((p0.o != pos.o || p0.l != pos.l) && !ISWORDBRK(pos.l->c[pos.o]));
+	} while((p0.offset != pos.offset || p0.line != pos.line) && !ISWORDBRK(pos.line->content[pos.offset]));
 	return pos;
 }
 
@@ -1552,9 +1536,9 @@ Filepos
 m_prevword(Filepos pos) {
 	Filepos p0 = m_prevchar(pos);
 
-	if(ISWORDBRK(pos.l->c[pos.o]))
-		while((p0.o != pos.o || p0.l != pos.l)
-		    && ISWORDBRK(pos.l->c[pos.o]))
+	if(ISWORDBRK(pos.line->content[pos.offset]))
+		while((p0.offset != pos.offset || p0.line != pos.line)
+		    && ISWORDBRK(pos.line->content[pos.offset]))
 			pos = p0, p0 = m_prevchar(pos);	/* Find the current or previous word */
 	else
 		pos = p0;
@@ -1562,7 +1546,7 @@ m_prevword(Filepos pos) {
 	do {
 		/* Move to word start */
 		p0 = pos, pos = m_prevchar(pos);
-	} while((p0.o != pos.o || p0.l != pos.l) && !ISWORDBRK(pos.l->c[pos.o]));
+	} while((p0.offset != pos.offset || p0.line != pos.line) && !ISWORDBRK(pos.line->content[pos.offset]));
 	return p0;
 }
 
@@ -1571,16 +1555,16 @@ Filepos
 m_nextline(Filepos pos) {
 	size_t ivchar, ichar;
 
-	for(ivchar = ichar = 0; ichar < pos.o; ichar++)
-		ivchar += VLEN(pos.l->c[ichar], ivchar);
+	for(ivchar = ichar = 0; ichar < pos.offset; ichar++)
+		ivchar += VLEN(pos.line->content[ichar], ivchar);
 
-	if(pos.l->next) {
+	if(pos.line->next) {
 		/* Remember: here we re-use ichar as a second ivchar */
-		for(pos.l = pos.l->next, pos.o = ichar = 0; ichar < ivchar && pos.o < pos.l->len; pos.o++)
-			ichar += VLEN(pos.l->c[pos.o], ichar);
+		for(pos.line = pos.line->next, pos.offset = ichar = 0; ichar < ivchar && pos.offset < pos.line->len; pos.offset++)
+			ichar += VLEN(pos.line->content[pos.offset], ichar);
 		FIXNEXT(pos);
 	} else {
-		pos.o = pos.l->len;
+		pos.offset = pos.line->len;
 	}
 	return pos;
 }
@@ -1590,16 +1574,16 @@ Filepos
 m_prevline(Filepos pos) {
 	size_t ivchar, ichar;
 
-	for(ivchar = ichar = 0; ichar < pos.o; ichar++)
-		ivchar += VLEN(pos.l->c[ichar], (ivchar % (cols - 1)));
+	for(ivchar = ichar = 0; ichar < pos.offset; ichar++)
+		ivchar += VLEN(pos.line->content[ichar], (ivchar % (cols - 1)));
 
-	if(pos.l->prev) {
+	if(pos.line->prev) {
 		/* Remember: here we re-use ichar as a second ivchar */
-		for(pos.l = pos.l->prev, pos.o = ichar = 0; ichar < ivchar && pos.o < pos.l->len; pos.o++)
-			ichar += VLEN(pos.l->c[pos.o], ichar);
+		for(pos.line = pos.line->prev, pos.offset = ichar = 0; ichar < ivchar && pos.offset < pos.line->len; pos.offset++)
+			ichar += VLEN(pos.line->content[pos.offset], ichar);
 		FIXNEXT(pos);
 	} else {
-		pos.o = 0;
+		pos.offset = 0;
 	}
 	return pos;
 }
@@ -1610,10 +1594,10 @@ m_nextscr(Filepos pos) {
 	int i;
 	Line *l;
 
-	for(i = LINESABS, l = pos.l; l->next && i > 0; i -= VLINES(l), l = l->next)
+	for(i = LINESABS, l = pos.line; l->next && i > 0; i -= VLINES(l), l = l->next)
 		;
-	pos.l = l;
-	pos.o = pos.l->len;
+	pos.line = l;
+	pos.offset = pos.line->len;
 	return pos;
 }
 
@@ -1630,10 +1614,10 @@ m_prevscr(Filepos pos) {
 	int i;
 	Line *l;
 
-	for(i = LINESABS, l = pos.l; l->prev && i > 0; i -= VLINES(l), l = l->prev)
+	for(i = LINESABS, l = pos.line; l->prev && i > 0; i -= VLINES(l), l = l->prev)
 		;
-	pos.l = l;
-	pos.o = 0;
+	pos.line = l;
+	pos.offset = 0;
 	return pos;
 }
 
@@ -1656,11 +1640,11 @@ m_tomark(Filepos pos) {
 	/* Be extra careful when moving to mark, as it might not exist */
 	Line *l;
 	for(l = fstline; l; l = l->next) {
-		if(l != NULL && l == fmrk.l) {
-			pos.l = fmrk.l;
-			pos.o = fmrk.o;
-			if(pos.o > pos.l->len)
-				pos.o = pos.l->len;
+		if(l != NULL && l == fmrk.line) {
+			pos.line = fmrk.line;
+			pos.offset = fmrk.offset;
+			if(pos.offset > pos.line->len)
+				pos.offset = pos.line->len;
 			FIXNEXT(pos);
 			f_mark(NULL);
 			break;
@@ -1691,13 +1675,13 @@ t_ai(void) {
 /* Returns TRUE if the cursor is at the beginning of the current line */
 bool
 t_bol(void) {
-	return (fcur.o == 0);
+	return (fcur.offset == 0);
 }
 
 /* Returns TRUE if cursor is at the end of the current line */
 bool
 t_eol(void) {
-	return (fcur.o == fcur.l->len);
+	return (fcur.offset == fcur.line->len);
 }
 
 /* Returns TRUE if the file has been modified */
@@ -1727,7 +1711,7 @@ t_redo(void) {
 /* Returns TRUE if any text is selected */
 bool
 t_sel(void) {
-	return !(fcur.l == fsel.l && fcur.o == fsel.o);
+	return !(fcur.line == fsel.line && fcur.offset == fsel.offset);
 }
 
 /* Returns TRUE if a sentence has started */
