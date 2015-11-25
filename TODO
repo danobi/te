@@ -6,6 +6,16 @@
 [x] rip out piping feature
 [x] see what else needs to be ripped out
 [ ] comment every function extensively
+	[x] t_* functions
+	[x] m_* functions
+	[ ] i_* functions
+	[ ] f_* functions
+[ ] figure out how undos work
+[ ] rename functions and variables to be more descriptive
+	- many struct field names are meaningless
+[ ] make `i_sortpos` function logic more clear
+[ ] make `m_nextline` not move to eol if at last line
+[ ] make `m_prevline` not move to bol if at first line
 [ ] merge `arg.h` into `te.c`
 [ ] remap all existing emacs keybindings to vim bindings
 [ ] add in command support again
