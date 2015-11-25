@@ -1,14 +1,14 @@
 # te - simple ncurses editor
 # See LICENSE file for copyright and license details.
 
-include config.mk
+include build/config.mk
 
 .POSIX:
 .SUFFIXES: .c .o
 
-HDR = arg.h
+HDR = src/arg.h
 
-SRC = te.c
+SRC = src/te.c
 
 OBJ = $(SRC:.c=.o)
 
@@ -20,7 +20,7 @@ options:
 	@echo "LDFLAGS  = $(LDFLAGS)"
 	@echo "CC       = $(CC)"
 
-$(OBJ): config.h config.mk
+$(OBJ): config.h build/config.mk
 
 .o:
 	@echo LD $@
